@@ -2,15 +2,22 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-dotenv.config();
 
-// Importez la connexion à la base de données (pool)
-const { pool } = require('./db');
+// Charge les variables d'environnement du fichier .env si l'environnement n'est pas 'production'
+// En production (sur Render), les variables seront injectées directement par Render.
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
-// Importez les fonctions spécifiques de auth.js de manière destructurée
-const { registerUser, loginUser } = require('./auth');
+// Importe la connexion à la base de données (pool et query)
+// Assurez-vous que le chemin est correct par rapport à server.js
+const { pool, query } = require('./db');
 
-// Assurez-vous que ces chemins sont corrects par rapport à l'emplacement de server.js
+// Importe les fonctions spécifiques d'authentification
+const { registerUser, loginUser } = require('./auth'); // Assurez-vous que ce fichier existe et exporte ces fonctions
+
+// Importe les routeurs pour les différentes entités
+// Vérifiez que ces chemins sont corrects par rapport à l'emplacement de server.js
 const clientsRoutes = require('./clients');
 const productRoutes = require('./products');
 const ventesRoutes = require('./ventes');
@@ -19,24 +26,29 @@ const returnsRouter = require('./returns');
 const remplacerRouter = require('./remplacements');
 const fournisseursRoutes = require('./fournisseurs');
 const facturesRoutes = require('./factures');
-const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour les commandes spéciales
+const specialOrdersRoutes = require('./specialOrders'); // Route pour les commandes spéciales
 
 const app = express();
 
+// Configuration CORS
+// Pour le déploiement, il est recommandé de spécifier l'origine de votre frontend.
+// Si votre frontend est aussi sur Render, utilisez son URL Render.
+// Pour le développement local, gardez 'http://localhost:5173'.
+// Pour une flexibilité initiale en déploiement, vous pouvez autoriser toutes les origines (moins sécurisé pour la production finale).
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' ? 'https://votre-frontend-render-url.onrender.com' : 'http://localhost:5173', // Remplacez par l'URL de votre frontend Render
   credentials: true
 }));
 
+// Middleware pour parser les requêtes JSON
 app.use(express.json());
 
-// --- ROUTES ---
-// Pour l'authentification, utilisez les fonctions directement avec app.post()
+// --- ROUTES D'AUTHENTIFICATION ---
 app.post('/api/login', loginUser);
 app.post('/api/register', registerUser); // Si vous avez une route d'enregistrement
 
-// Utilisez app.use() pour les autres routeurs qui exportent "router"
-// Vérifiez que les chemins d'accès ici correspondent à la structure de vos fichiers
+// --- ROUTES POUR LES AUTRES RESSOURCES ---
+// Utilisez app.use() pour monter les routeurs
 app.use('/api/clients', clientsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/ventes', ventesRoutes);
@@ -45,14 +57,14 @@ app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
 app.use('/api/factures', facturesRoutes);
-app.use('/api/special-orders', specialOrdersRoutes); // NOUVELLE ROUTE pour les commandes spéciales
+app.use('/api/special-orders', specialOrdersRoutes); // Route pour les commandes spéciales
 
-// Nouvelle route GET pour calculer les bénéfices totaux et détaillés
+// --- NOUVELLE ROUTE GET POUR CALCULER LES BÉNÉFICES ---
 app.get('/api/benefices', async (req, res) => {
-    let client; // Déclarez la variable client ici
+    let client; // Déclare la variable client pour le pool de connexion
     try {
-        client = await pool.connect(); // Initialisez client ici
-        let query = `
+        client = await pool.connect(); // Obtient un client du pool
+        let sqlQuery = `
             SELECT
                 vi.id AS vente_item_id,
                 vi.marque,
@@ -64,24 +76,20 @@ app.get('/api/benefices', async (req, res) => {
                 vi.prix_unitaire_achat,
                 vi.quantite_vendue,
                 v.date_vente,
-                COALESCE(v.montant_total, 0) AS total_negotiated_sale_price, -- Le prix total négocié de la vente, COALESCE pour gérer les NULL
-                vi.prix_unitaire_vente AS original_unit_sale_price, -- Le prix unitaire initial de l'article
-                -- Calculer la valeur totale originale de la vente pour la répartition proportionnelle
+                COALESCE(v.montant_total, 0) AS total_negotiated_sale_price,
+                vi.prix_unitaire_vente AS original_unit_sale_price,
                 COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue)
                  FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) AS total_original_sale_value,
-                -- Calculer le revenu réel par ligne d'article basé sur le prix total négocié de la vente
                 (CASE
                     WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN 0
                     ELSE COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)
                 END) AS actual_revenue_per_line,
-                -- Calculer le bénéfice total par ligne
                 (CASE
                     WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - (vi.prix_unitaire_achat * vi.quantite_vendue))
                     ELSE (COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) - (vi.prix_unitaire_achat * vi.quantite_vendue)
                 END) AS benefice_total_par_ligne,
-                -- Calculer le bénéfice unitaire du produit
                 (CASE
-                    WHEN vi.quantite_vendue = 0 THEN 0 -- Éviter la division par zéro si la quantité est 0
+                    WHEN vi.quantite_vendue = 0 THEN 0
                     WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - vi.prix_unitaire_achat)
                     ELSE ((COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) / vi.quantite_vendue) - vi.prix_unitaire_achat
                 END) AS benefice_unitaire_produit
@@ -104,14 +112,14 @@ app.get('/api/benefices', async (req, res) => {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
                 return res.status(400).json({ error: 'Format de date invalide. Utilisez YYYY-MM-DD.' });
             }
-            query += ` AND DATE(v.date_vente) = $${paramIndex}`;
+            sqlQuery += ` AND DATE(v.date_vente) = $${paramIndex}`;
             queryParams.push(date);
             paramIndex++;
         }
 
-        query += ` ORDER BY v.date_vente DESC;`;
+        sqlQuery += ` ORDER BY v.date_vente DESC;`;
 
-        const itemsResult = await client.query(query, queryParams);
+        const itemsResult = await client.query(sqlQuery, queryParams);
         const soldItems = itemsResult.rows;
 
         let totalBeneficeGlobal = 0;
@@ -129,14 +137,16 @@ app.get('/api/benefices', async (req, res) => {
         res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices.' });
     } finally {
         if (client) {
-            client.release();
+            client.release(); // Libère le client pour le pool
         }
     }
 });
 
 
 // --- DÉMARRAGE DU SERVEUR ---
-app.listen(process.env.PORT || 3001, () => {
-  console.log('✅ Connexion à la base de données réussie');
-  console.log(`🚀 Serveur backend lancé sur http://localhost:${process.env.PORT || 3001}`);
+// Le serveur écoute sur le port fourni par l'environnement (Render) ou 3001 par défaut
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log('✅ Connexion à la base de données réussie (vérifiée dans db.js)');
+  console.log(`🚀 Serveur backend lancé sur http://localhost:${PORT}`);
 });
