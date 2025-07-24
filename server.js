@@ -3,14 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 
-// --- MODIFICATION ICI ---
 // Charge les variables d'environnement du fichier .env UNIQUEMENT si l'environnement n'est PAS 'production'.
 // Sur Render (en production), les variables seront injectées directement par Render,
 // donc cette ligne sera ignorée.
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
-// --- FIN DE LA MODIFICATION ---
 
 // Importez la connexion à la base de données (pool)
 const { pool } = require('./db');
@@ -31,10 +29,10 @@ const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour le
 
 const app = express();
 
-// --- MODIFICATION ICI ---
+// --- MODIFICATION ICI : Mettre l'URL réelle de votre frontend Render ---
 // Configuration CORS : Utilise l'URL de votre frontend Render en production, ou localhost en développement.
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://votre-frontend-render-url.onrender.com' : 'http://localhost:5173', // REMPLACEZ PAR L'URL DE VOTRE FRONTEND RENDER
+  origin: process.env.NODE_ENV === 'production' ? 'https://YOUR-FRONTEND-URL.onrender.com' : 'http://localhost:5173', // REMPLACEZ CETTE LIGNE AVEC L'URL RÉELLE DE VOTRE FRONTEND RENDER
   credentials: true
 }));
 // --- FIN DE LA MODIFICATION ---
