@@ -32,7 +32,7 @@ const app = express();
 // --- MODIFICATION ICI : Mettre l'URL réelle de votre frontend Render ---
 // Configuration CORS : Utilise l'URL de votre frontend Render en production, ou localhost en développement.
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://YOUR-FRONTEND-URL.onrender.com' : 'http://localhost:5173', // REMPLACEZ CETTE LIGNE AVEC L'URL RÉELLE DE VOTRE FRONTEND RENDER
+  origin: process.env.NODE_ENV === 'production' ? 'https://choco-frontend-app.onrender.com' : 'http://localhost:5173', // L'URL RÉELLE DE VOTRE FRONTEND RENDER
   credentials: true
 }));
 // --- FIN DE LA MODIFICATION ---
