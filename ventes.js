@@ -1,7 +1,6 @@
-// backend/ventes.js
 const express = require('express');
 const router = express.Router();
-const { pool } = require('./db');
+const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
 const pdf = require('html-pdf'); // Importation de la bibliothèque html-pdf
 
 // Fonction utilitaire pour formater les montants
@@ -316,31 +315,8 @@ router.post('/', async (req, res) => {
     }
     console.log('Backend: Statut des produits mis à jour.');
 
-    // 6. Insérer la facture (si ce n'est pas une facture spéciale)
-    // Le statut de la facture sera basé sur le statut de paiement de la vente
-    if (!is_facture_speciale) {
-      console.log('Backend: Tente d\'insérer une facture.');
-      console.log('Backend: Valeurs pour la facture - vente_id:', nouvelleVenteId, 'montant_total:', montantTotal, 'montant_paye:', parsedMontantPaye, 'statut_facture:', statutPaiement);
-
-      // Générer un numéro de facture unique
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0'); // Mois (01-12)
-      const day = String(now.getDate()).padStart(2, '0'); // Jour (01-31)
-      const numeroFacture = `INV-${year}${month}${day}-${nouvelleVenteId}`; // Format: INV-YYYYMMDD-VENTE_ID
-
-      // Calculer montant_actuel_du
-      const montantActuelDu = montantTotal - parsedMontantPaye;
-
-      await clientDb.query(
-        'INSERT INTO factures (vente_id, numero_facture, date_facture, montant_original_facture, montant_actuel_du, montant_paye_facture, statut_facture) VALUES ($1, $2, NOW(), $3, $4, $5, $6)',
-        [nouvelleVenteId, numeroFacture, montantTotal, montantActuelDu, parsedMontantPaye, statutPaiement] // Utilise le statutPaiement calculé
-      );
-      console.log('Backend: Facture insérée.');
-    } else {
-      console.log('Backend: Facture spéciale détectée (is_facture_speciale est true), l\'insertion de la facture est ignorée.');
-    }
-
+    // ATTENTION: La logique d'insertion de facture a été supprimée ici.
+    // Les factures seront gérées par une route /api/factures dédiée si is_facture_speciale est true.
 
     await clientDb.query('COMMIT');
     console.log('Backend: Transaction validée (COMMIT).');
@@ -450,7 +426,6 @@ router.post('/cancel-item', async (req, res) => {
             [venteId]
         );
     }
-
 
     await clientDb.query('COMMIT');
     res.status(200).json({ message: 'Article annulé et produit réactivé si applicable.' });
@@ -665,7 +640,6 @@ router.post('/return-item', async (req, res) => {
             [vente_id]
         );
     }
-
 
     await clientDb.query('COMMIT');
     res.status(200).json({ message: 'Article retourné et enregistré avec succès.' });
@@ -892,9 +866,9 @@ router.get('/:id/pdf', async (req, res) => {
               <p style="font-size: 14px;"><strong>Téléphone:</strong> ${sale.client_telephone || 'N/A'}</p>
             </td>
             <td style="vertical-align: top; width: 50%; text-align: right;">
-              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">[Nom de L'entreprise]</h2>
-              <p style="font-size: 12px;">Tél : [Numero de L'entreprise]</p>
-              <p style="font-size: 12px;">Adresse : [Nom de L'entreprise]</p>
+              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">[ALY MEGA STORE]</h2>
+              <p style="font-size: 12px;">Tél : [79 79 83 77]</p>
+              <p style="font-size: 12px;">Adresse : [Halle de Bamako]</p>
             </td>
           </tr>
         </table>
