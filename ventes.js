@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
-const pdf = require('html-pdf'); // Importation de la bibliothèque html-pdf
+const puppeteer = require('puppeteer'); // Importation de la bibliothèque puppeteer
 
 // Fonction utilitaire pour formater les montants
 const formatAmount = (amount) => {
@@ -767,6 +767,7 @@ router.post('/mark-as-rendu', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   const venteId = req.params.id;
   let clientDb;
+  let browser; // Déclarer la variable browser ici
 
   try {
     clientDb = await pool.connect();
@@ -813,7 +814,7 @@ router.get('/:id/pdf', async (req, res) => {
       GROUP BY
           v.id, c.nom, c.telephone;
     `;
-    const result = await clientDb.query(saleDetailsQuery, [venteId]); // Correction: utilisation de 'saleDetailsQuery'
+    const result = await clientDb.query(saleDetailsQuery, [venteId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Vente non trouvée.' });
@@ -899,31 +900,43 @@ router.get('/:id/pdf', async (req, res) => {
       </div>
     `;
 
-    const options = {
-      format: 'A4',
-      orientation: 'portrait',
-      border: '1cm',
-      quality: '75',
-    };
+    // Utilisation de Puppeteer pour générer le PDF
+    // Lancer un navigateur sans tête
+    // Utiliser l'option 'args' pour Render afin d'assurer la compatibilité
+    browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Important pour les environnements de déploiement
+    });
+    const page = await browser.newPage();
 
-    pdf.create(htmlContent, options).toBuffer((err, buffer) => {
-      if (err) {
-        console.error('Erreur lors de la création du PDF:', err);
-        return res.status(500).json({ error: 'Erreur lors de la génération du PDF.' });
+    // Définir le contenu HTML de la page
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+    // Générer le PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true, // Pour inclure les couleurs de fond
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
       }
-      res.writeHead(200, {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
-        'Content-Length': buffer.length
-      });
-      res.end(buffer);
     });
 
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
+      'Content-Length': pdfBuffer.length
+    });
+    res.end(pdfBuffer);
+
   } catch (error) {
-    console.error('Erreur lors de la génération du PDF de la facture:', error);
+    console.error('Erreur lors de la génération du PDF de la facture avec Puppeteer:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la génération du PDF.' });
   } finally {
     if (clientDb) clientDb.release();
+    if (browser) await browser.close(); // S'assurer que le navigateur est fermé
   }
 });
 
