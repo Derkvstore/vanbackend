@@ -29,10 +29,10 @@ const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour le
 const app = express();
 
 // Configuration CORS
-// En production, remplacez 'https://votre-frontend-render-url.onrender.com' par l'URL réelle de votre frontend Render.
+// En production, l'URL doit être l'URL réelle de votre frontend Render.
 // Pour le développement local, 'http://localhost:5173' est utilisé.
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://vanchoco.app' : 'http://localhost:5173', // MIS À JOUR : Nouvelle URL du frontend
+  origin: process.env.NODE_ENV === 'production' ? 'https://vanchoco.app' : 'http://localhost:5173', // CORRECTION : Utilisation de la nouvelle URL du frontend Render
   credentials: true
 }));
 
