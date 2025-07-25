@@ -167,7 +167,6 @@ router.get('/:id', async (req, res) => {
                         'is_special_sale_item', vi.is_special_sale_item,
                         'source_achat_id', vi.source_achat_id,
                         'cancellation_reason', vi.cancellation_reason,
-                        'montant_rembourse_item', vi.montant_rembourse_item, -- Inclure le montant remboursé par article
                         'nom_fournisseur', fo.nom
                     )
                     ORDER BY vi.id
@@ -285,7 +284,7 @@ router.put('/:id/payment', async (req, res) => {
     }
 });
 
-// PUT /api/factures/:id/cancel - Annuler une facture complète
+// PUT /api/factures/:id/cancel - Annuler une facture
 router.put('/:id/cancel', async (req, res) => {
     const { id } = req.params;
     const { raison_annulation } = req.body;
@@ -300,14 +299,14 @@ router.put('/:id/cancel', async (req, res) => {
         await clientDb.query('BEGIN');
 
         const invoiceResult = await clientDb.query(
-            'SELECT vente_id, statut_facture, montant_original_facture, montant_paye_facture, numero_facture FROM factures WHERE id = $1 FOR UPDATE',
+            'SELECT vente_id, statut_facture, montant_original_facture, montant_paye_facture FROM factures WHERE id = $1 FOR UPDATE', // Added montant_paye_facture
             [id]
         );
         if (invoiceResult.rows.length === 0) {
             await clientDb.query('ROLLBACK');
             return res.status(404).json({ error: 'Facture non trouvée.' });
         }
-        const { vente_id, statut_facture, montant_paye_facture, numero_facture } = invoiceResult.rows[0];
+        const { vente_id, statut_facture, montant_original_facture, montant_paye_facture } = invoiceResult.rows[0]; // Destructure montant_paye_facture
 
         if (statut_facture === 'annulee' || statut_facture === 'retour_total') {
             await clientDb.query('ROLLBACK');
@@ -320,7 +319,7 @@ router.put('/:id/cancel', async (req, res) => {
              SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = $1,
                  montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $2 -- Rembourse le montant payé initialement sur la facture
              WHERE id = $3 RETURNING *`,
-            [raison_annulation, montant_paye_facture, id]
+            [raison_annulation, montant_paye_facture, id] // Use montant_paye_facture for reimbursement
         );
 
         // 2. Annuler tous les articles de vente liés à cette facture (via la vente_id)
@@ -332,24 +331,25 @@ router.put('/:id/cancel', async (req, res) => {
         for (const item of saleItemsResult.rows) {
             // Mettre à jour le statut de l'article de vente
             await clientDb.query(
-                `UPDATE vente_items SET statut_vente = 'annule', cancellation_reason = $1, montant_rembourse_item = 0 WHERE id = $2`,
-                [`Annulation facture #${numeroFacture}: ${raison_annulation}`, item.id]
+                `UPDATE vente_items SET statut_vente = 'annule', cancellation_reason = $1 WHERE id = $2`,
+                [`Annulation facture #${updateInvoiceResult.rows[0].numero_facture}`, item.id]
             );
 
             // Réactiver le produit dans le stock (toujours, quelle que soit is_special_sale_item)
-            if (item.produit_id) {
+            if (item.produit_id) { // Ensure produit_id exists
                 await clientDb.query(
                     'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-                    ['active', item.produit_id, item.imei]
+                    ['active', item.produit_id, item.imei] // Remettre en 'active' pour qu'il soit visible dans le stock
                 );
             }
         }
 
         // 3. Mettre à jour le statut de la vente associée à 'annulee' et réinitialiser les montants
         await clientDb.query(
-            `UPDATE ventes SET statut_paiement = 'annulee', montant_paye = 0, montant_total = 0 WHERE id = $1`,
+            `UPDATE ventes SET statut_paiement = 'annulee', montant_paye = 0, montant_total = 0 WHERE id = $1`, // Reset total and paid for sale
             [vente_id]
         );
+
 
         await clientDb.query('COMMIT');
         res.status(200).json({ message: 'Facture et vente associée annulées avec succès.', invoice: updateInvoiceResult.rows[0] });
@@ -363,7 +363,7 @@ router.put('/:id/cancel', async (req, res) => {
     }
 });
 
-// POST /api/factures/:id/return-item - Gérer le retour d'un article lié à une facture (avec impact financier)
+// POST /api/factures/:id/return-item - Gérer le retour d'un article lié à une facture
 router.post('/:id/return-item', async (req, res) => {
     const { id: factureId } = req.params; // ID de la facture
     const { vente_item_id, reason, montant_rembourse_item } = req.body;
@@ -379,7 +379,7 @@ router.post('/:id/return-item', async (req, res) => {
 
         // 1. Vérifier la facture et la verrouiller
         const invoiceResult = await clientDb.query(
-            'SELECT vente_id, montant_original_facture, montant_actuel_du, montant_paye_facture, montant_rembourse, statut_facture, numero_facture FROM factures WHERE id = $1 FOR UPDATE',
+            'SELECT vente_id, montant_original_facture, montant_actuel_du, montant_paye_facture, montant_rembourse, statut_facture FROM factures WHERE id = $1 FOR UPDATE',
             [factureId]
         );
         if (invoiceResult.rows.length === 0) {
@@ -404,7 +404,7 @@ router.post('/:id/return-item', async (req, res) => {
         }
         const saleItem = saleItemResult.rows[0];
 
-        if (saleItem.statut_vente === 'annule' || saleItem.statut_vente === 'retourne' || saleItem.statut_vente === 'defective_returned') {
+        if (saleItem.statut_vente === 'annule' || saleItem.statut_vente === 'retourne') {
             await clientDb.query('ROLLBACK');
             return res.status(400).json({ error: `L'article de vente est déjà ${saleItem.statut_vente}.` });
         }
@@ -417,8 +417,8 @@ router.post('/:id/return-item', async (req, res) => {
 
         // 3. Mettre à jour le statut de l'article de vente à 'retourne'
         await clientDb.query(
-            `UPDATE vente_items SET statut_vente = 'retourne', cancellation_reason = $1, montant_rembourse_item = $2 WHERE id = $3`,
-            [`Retour client (Facture #${invoice.numero_facture}): ${reason}`, parsedMontantRembourseItem, vente_item_id]
+            `UPDATE vente_items SET statut_vente = 'retourne', cancellation_reason = $1 WHERE id = $2`,
+            [`Retour client (Facture #${invoice.numero_facture}): ${reason}`, vente_item_id]
         );
 
         // 4. Mettre à jour le statut du produit dans 'products' (toujours, quelle que soit is_special_sale_item)
@@ -438,7 +438,7 @@ router.post('/:id/return-item', async (req, res) => {
 
         // Check if all items of the sale are now returned or cancelled
         const remainingItemsCheck = await clientDb.query(
-            'SELECT COUNT(*) AS total_items, SUM(CASE WHEN statut_vente IN (\'annule\', \'retourne\', \'defective_returned\') THEN 1 ELSE 0 END) AS inactive_items FROM vente_items WHERE vente_id = $1',
+            'SELECT COUNT(*) AS total_items, SUM(CASE WHEN statut_vente IN (\'annule\', \'retourne\') THEN 1 ELSE 0 END) AS inactive_items FROM vente_items WHERE vente_id = $1',
             [invoice.vente_id]
         );
         const { total_items, inactive_items } = remainingItemsCheck.rows[0];
@@ -496,151 +496,6 @@ router.post('/:id/return-item', async (req, res) => {
         if (clientDb) clientDb.release();
     }
 });
-
-// PUT /api/factures/:factureId/items/:itemId/mark-as-defective
-// Marque un article de vente comme défectueux et le retourne en stock SANS impact financier sur la facture.
-router.put('/:factureId/items/:itemId/mark-as-defective', async (req, res) => {
-    const { factureId, itemId } = req.params;
-    const { reason } = req.body; // Raison du marquage comme défectueux
-
-    let clientDb;
-
-    if (!reason) {
-        return res.status(400).json({ error: 'La raison est requise pour marquer l\'article comme défectueux.' });
-    }
-
-    try {
-        clientDb = await pool.connect();
-        await clientDb.query('BEGIN');
-
-        // 1. Vérifier la facture et l'article de vente, et obtenir le numéro de facture
-        const invoiceAndItemResult = await clientDb.query(
-            `SELECT
-                vi.id AS item_id, vi.produit_id, vi.imei, vi.statut_vente, vi.vente_id,
-                f.numero_facture
-            FROM
-                vente_items vi
-            JOIN
-                factures f ON vi.vente_id = f.vente_id
-            WHERE
-                vi.id = $1 AND f.id = $2 FOR UPDATE`, // Verrouiller la ligne de l'article et de la facture
-            [itemId, factureId]
-        );
-
-        if (invoiceAndItemResult.rows.length === 0) {
-            await clientDb.query('ROLLBACK');
-            return res.status(404).json({ error: 'Article de vente ou facture non trouvée.' });
-        }
-        const saleItem = invoiceAndItemResult.rows[0];
-        const numeroFacture = saleItem.numero_facture;
-
-        // Empêcher le marquage si l'article est déjà dans un état final de non-vente
-        if (saleItem.statut_vente === 'annule' || saleItem.statut_vente === 'retourne' || saleItem.statut_vente === 'defective_returned') {
-            await clientDb.query('ROLLBACK');
-            return res.status(400).json({ error: `L'article de vente est déjà ${saleItem.statut_vente}.` });
-        }
-
-        // 2. Mettre à jour le statut de l'article de vente à 'defective_returned'
-        await clientDb.query(
-            `UPDATE vente_items SET statut_vente = 'defective_returned', cancellation_reason = $1, montant_rembourse_item = 0 WHERE id = $2`,
-            [`Défectueux / Retourné au stock (Facture #${numeroFacture}): ${reason}`, itemId]
-        );
-
-        // 3. Réactiver le produit dans le stock (si un produit_id est associé)
-        if (saleItem.produit_id) {
-            await clientDb.query(
-                `UPDATE products SET status = 'active' WHERE id = $1 AND imei = $2`,
-                [saleItem.produit_id, saleItem.imei]
-            );
-        }
-
-        // 4. NE PAS MODIFIER les champs financiers ou de statut de la facture ou de la vente.
-        // La facture reste "payee_integralement" si elle l'était, car il n'y a pas de remboursement financier ici.
-
-        await clientDb.query('COMMIT');
-        res.status(200).json({ message: 'Article marqué comme défectueux et retourné en stock avec succès (sans impact financier sur la facture).' });
-
-    } catch (error) {
-        if (clientDb) await clientDb.query('ROLLBACK');
-        console.error('Erreur lors du marquage de l\'article comme défectueux:', error);
-        res.status(500).json({ error: 'Erreur serveur lors du marquage de l\'article comme défectueux.' });
-    } finally {
-        if (clientDb) clientDb.release();
-    }
-});
-
-// NOUVELLE ROUTE : PUT /api/factures/:factureId/items/:itemId/cancel-item-no-refund
-// Annule un article de vente et le retourne en stock SANS impact financier sur la facture.
-router.put('/:factureId/items/:itemId/cancel-item-no-refund', async (req, res) => {
-    const { factureId, itemId } = req.params;
-    const { reason } = req.body; // Raison de l'annulation
-
-    let clientDb;
-
-    if (!reason) {
-        return res.status(400).json({ error: 'La raison est requise pour annuler l\'article.' });
-    }
-
-    try {
-        clientDb = await pool.connect();
-        await clientDb.query('BEGIN');
-
-        // 1. Vérifier la facture et l'article de vente, et obtenir le numéro de facture
-        const invoiceAndItemResult = await clientDb.query(
-            `SELECT
-                vi.id AS item_id, vi.produit_id, vi.imei, vi.statut_vente, vi.vente_id,
-                f.numero_facture
-            FROM
-                vente_items vi
-            JOIN
-                factures f ON vi.vente_id = f.vente_id
-            WHERE
-                vi.id = $1 AND f.id = $2 FOR UPDATE`, // Verrouiller la ligne de l'article et de la facture
-            [itemId, factureId]
-        );
-
-        if (invoiceAndItemResult.rows.length === 0) {
-            await clientDb.query('ROLLBACK');
-            return res.status(404).json({ error: 'Article de vente ou facture non trouvée.' });
-        }
-        const saleItem = invoiceAndItemResult.rows[0];
-        const numeroFacture = saleItem.numero_facture;
-
-        // Empêcher l'annulation si l'article est déjà dans un état final de non-vente
-        if (saleItem.statut_vente === 'annule' || saleItem.statut_vente === 'retourne' || saleItem.statut_vente === 'defective_returned') {
-            await clientDb.query('ROLLBACK');
-            return res.status(400).json({ error: `L'article de vente est déjà ${saleItem.statut_vente}.` });
-        }
-
-        // 2. Mettre à jour le statut de l'article de vente à 'annule'
-        await clientDb.query(
-            `UPDATE vente_items SET statut_vente = 'annule', cancellation_reason = $1, montant_rembourse_item = 0 WHERE id = $2`,
-            [`Annulation article (Facture #${numeroFacture}): ${reason}`, itemId]
-        );
-
-        // 3. Réactiver le produit dans le stock (si un produit_id est associé)
-        if (saleItem.produit_id) {
-            await clientDb.query(
-                `UPDATE products SET status = 'active' WHERE id = $1 AND imei = $2`,
-                [saleItem.produit_id, saleItem.imei]
-            );
-        }
-
-        // 4. NE PAS MODIFIER les champs financiers ou de statut de la facture ou de la vente.
-        // La facture reste "payee_integralement" si elle l'était, car il n'y a pas de remboursement financier ici.
-
-        await clientDb.query('COMMIT');
-        res.status(200).json({ message: 'Article annulé et retourné en stock avec succès (sans impact financier sur la facture).' });
-
-    } catch (error) {
-        if (clientDb) await clientDb.query('ROLLBACK');
-        console.error('Erreur lors de l\'annulation de l\'article:', error);
-        res.status(500).json({ error: 'Erreur serveur lors de l\'annulation de l\'article.' });
-    } finally {
-        if (clientDb) clientDb.release();
-    }
-});
-
 
 // POST /api/factures/:id/print - Générer un PDF de la facture (Placeholder)
 router.post('/:id/print', async (req, res) => {
