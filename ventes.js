@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
-const puppeteer = require('puppeteer'); // Importation de la bibliothèque puppeteer
+const puppeteer = require('puppeteer-core'); // Utilisation de puppeteer-core
+const chromium = require('@sparticuz/chromium'); // Importation de @sparticuz/chromium
 
 // Fonction utilitaire pour formater les montants
 const formatAmount = (amount) => {
@@ -905,7 +906,8 @@ router.get('/:id/pdf', async (req, res) => {
     // Utiliser l'option 'args' pour Render afin d'assurer la compatibilité
     browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Important pour les environnements de déploiement
+        args: chromium.args, // Utilise les arguments recommandés par @sparticuz/chromium
+        executablePath: await chromium.executablePath, // Utilise le chemin de l'exécutable de Chromium
     });
     const page = await browser.newPage();
 
