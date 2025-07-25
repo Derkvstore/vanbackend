@@ -97,9 +97,9 @@ app.get('/api/benefices', async (req, res) => {
             WHERE
                 vi.statut_vente = 'actif'
                 AND (
-                    (f.id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Condition pour les factures formelles payées intégralement (CORRECTION: f.id au lieu de f.facture_id)
+                    (f.id IS NOT NULL AND f.statut_facture = 'payee_integralement')
                     OR
-                    (f.id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Condition pour les ventes en détail entièrement payées
+                    (f.id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND COALESCE(v.is_facture_speciale, FALSE) = FALSE) -- CORRECTION ICI: COALESCE pour v.is_facture_speciale
                 )
         `;
         const queryParams = [];
