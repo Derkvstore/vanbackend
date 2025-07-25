@@ -99,7 +99,7 @@ app.get('/api/benefices', async (req, res) => {
             JOIN
                 ventes v ON vi.vente_id = v.id
             JOIN
-                factures f ON v.id = f.id -- Correction: v.id = f.vente_id si facture est liée à vente
+                factures f ON v.id = f.vente_id -- CORRECTION ICI : v.id = f.vente_id
             WHERE
                 vi.statut_vente = 'actif'
                 AND f.statut_facture = 'payee_integralement'
@@ -143,3 +143,11 @@ app.get('/api/benefices', async (req, res) => {
     }
 });
 
+
+// --- DÉMARRAGE DU SERVEUR ---
+// Le serveur écoute sur le port fourni par l'environnement (Render) ou 3001 par défaut
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log('✅ Serveur backend lancé'); // Message simplifié ici
+  console.log(`🚀 Serveur backend lancé sur http://localhost:${PORT}`);
+});
