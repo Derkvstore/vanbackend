@@ -905,9 +905,10 @@ router.get('/:id/pdf', async (req, res) => {
     // Lancer un navigateur sans tête
     // Utiliser l'option 'args' pour Render afin d'assurer la compatibilité
     browser = await puppeteer.launch({
-        headless: true,
-        args: chromium.args, // Utilise les arguments recommandés par @sparticuz/chromium
-        executablePath: await chromium.executablePath, // Utilise le chemin de l'exécutable de Chromium
+        headless: 'new', // Utiliser 'new' pour la dernière version du mode sans tête
+        args: chromium.args,
+        // Pointer explicitement vers le binaire Chromium copié
+        executablePath: '/opt/render/project/src/chrome-bin/chromium', // <-- MODIFICATION CLÉ ICI
     });
     const page = await browser.newPage();
 
