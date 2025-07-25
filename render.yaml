@@ -3,8 +3,11 @@ services:
   - type: web
     name: choco-backend-api # Assurez-vous que c'est le même nom que votre service Render
     env: node
-    # Nouvelle commande de build pour décompresser Chromium manuellement
-    buildCommand: 'npm install && node -e "require(\'@sparticuz/chromium\').executablePath.then(p => console.log(\'Chromium path:\', p))"'
+    # Nouvelle commande de build pour décompresser Chromium manuellement et s'assurer de sa persistance
+    buildCommand: |
+      npm install
+      npm install -g @sparticuz/chromium@latest # Installer globalement pour s'assurer que le script est accessible
+      node -e "const chromium = require('@sparticuz/chromium'); chromium.executablePath.then(p => console.log('Chromium path:', p)).catch(e => { console.error(e); process.exit(1); });"
     startCommand: 'node server.js'
     envVars:
       - key: NODE_ENV
