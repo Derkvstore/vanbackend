@@ -105,7 +105,7 @@ app.get('/api/benefices', async (req, res) => {
                 AND (
                     (f.facture_id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Ventes liées à une facture spéciale entièrement payée
                     OR
-                    (f.facture_id IS NULL AND v.montant_paye >= v.montant_total AND v.is_facture_speciale = FALSE) -- Ventes en détail entièrement payées
+                    (f.facture_id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Ventes en détail entièrement payées
                 )
         `;
         const queryParams = [];
