@@ -29,7 +29,7 @@ const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour le
 const app = express();
 
 // Configuration CORS
-// En production, remplacez 'https://votre-frontend-render-url.onrender.com' par l'URL réelle de votre frontend Render.
+// En production, remplacez 'https://choco-frontend-app.onrender.com' par l'URL réelle de votre frontend Render.
 // Pour le développement local, 'http://localhost:5173' est utilisé.
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? 'https://choco-frontend-app.onrender.com' : 'http://localhost:5173', // L'URL RÉELLE DE VOTRE FRONTEND RENDER
@@ -47,7 +47,7 @@ app.post('/api/register', registerUser); // Si vous avez une route d'enregistrem
 app.use('/api/clients', clientsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/ventes', ventesRoutes);
-app.use('/api/reports', reportsRouter);
+app.use('/api/reports', reportsRouter); // Assurez-vous que reportsRouter contient la route /dashboard-stats
 app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
@@ -97,9 +97,9 @@ app.get('/api/benefices', async (req, res) => {
             WHERE
                 vi.statut_vente = 'actif'
                 AND (
-                    (f.facture_id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Condition pour les factures formelles payées intégralement
+                    (f.id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Condition pour les factures formelles payées intégralement (CORRECTION: f.id au lieu de f.facture_id)
                     OR
-                    (f.facture_id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Condition pour les ventes en détail entièrement payées
+                    (f.id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Condition pour les ventes en détail entièrement payées
                 )
         `;
         const queryParams = [];
@@ -118,13 +118,20 @@ app.get('/api/benefices', async (req, res) => {
 
         sqlQuery += ` ORDER BY v.date_vente DESC;`;
 
+        console.log('Backend Benefices: Exécution de la requête SQL:', sqlQuery);
+        console.log('Backend Benefices: Paramètres de la requête:', queryParams);
+
         const itemsResult = await client.query(sqlQuery, queryParams);
         const soldItems = itemsResult.rows;
+
+        console.log('Backend Benefices: Articles de vente trouvés:', soldItems);
 
         let totalBeneficeGlobal = 0;
         soldItems.forEach(item => {
             totalBeneficeGlobal += parseFloat(item.benefice_total_par_ligne);
         });
+
+        console.log('Backend Benefices: Bénéfice total global calculé:', totalBeneficeGlobal);
 
         res.json({
             sold_items: soldItems,
