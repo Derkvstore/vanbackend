@@ -3,21 +3,19 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 
-// Charge les variables d'environnement du fichier .env si l'environnement n'est pas 'production'
+// Charge les variables d'environnement du fichier .env UNIQUEMENT si l'environnement n'est pas 'production'.
 // En production (sur Render), les variables seront injectées directement par Render.
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-// Importe la connexion à la base de données (pool et query)
-// Assurez-vous que le chemin est correct par rapport à server.js
+// Importation de la connexion à la base de données (pool et query)
 const { pool, query } = require('./db');
 
-// Importe les fonctions spécifiques d'authentification
+// Importation des fonctions d'authentification
 const { registerUser, loginUser } = require('./auth'); // Assurez-vous que ce fichier existe et exporte ces fonctions
 
-// Importe les routeurs pour les différentes entités
-// Vérifiez que ces chemins sont corrects par rapport à l'emplacement de server.js
+// Importation des routeurs pour les différentes entités
 const clientsRoutes = require('./clients');
 const productRoutes = require('./products');
 const ventesRoutes = require('./ventes');
@@ -26,18 +24,15 @@ const returnsRouter = require('./returns');
 const remplacerRouter = require('./remplacements');
 const fournisseursRoutes = require('./fournisseurs');
 const facturesRoutes = require('./factures');
-const specialOrdersRoutes = require('./specialOrders'); // Route pour les commandes spéciales
+const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour les commandes spéciales
 
 const app = express();
 
 // Configuration CORS
-// Pour le déploiement, il est recommandé de spécifier l'origine de votre frontend.
-// Si votre frontend est aussi sur Render, utilisez son URL Render.
-// Pour le développement local, gardez 'http://localhost:5173'.
-// Pour une flexibilité initiale en déploiement, vous pouvez autoriser toutes les origines (moins sécurisé pour la production finale).
+// En production, remplacez 'https://votre-frontend-render-url.onrender.com' par l'URL réelle de votre frontend Render.
+// Pour le développement local, 'http://localhost:5173' est utilisé.
 app.use(cors({
-  // CORRECTION ICI : L'URL réelle de votre frontend sur Render
-  origin: process.env.NODE_ENV === 'production' ? 'https://choco-frontend-app.onrender.com' : 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' ? 'https://choco-frontend-app.onrender.com' : 'http://localhost:5173', // L'URL RÉELLE DE VOTRE FRONTEND RENDER
   credentials: true
 }));
 
@@ -49,7 +44,6 @@ app.post('/api/login', loginUser);
 app.post('/api/register', registerUser); // Si vous avez une route d'enregistrement
 
 // --- ROUTES POUR LES AUTRES RESSOURCES ---
-// Utilisez app.use() pour monter les routeurs
 app.use('/api/clients', clientsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/ventes', ventesRoutes);
@@ -58,13 +52,13 @@ app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
 app.use('/api/factures', facturesRoutes);
-app.use('/api/special-orders', specialOrdersRoutes); // Route pour les commandes spéciales
+app.use('/api/special-orders', specialOrdersRoutes); // NOUVELLE ROUTE pour les commandes spéciales
 
 // --- NOUVELLE ROUTE GET POUR CALCULER LES BÉNÉFICES ---
 app.get('/api/benefices', async (req, res) => {
-    let client; // Déclare la variable client pour le pool de connexion
+    let client;
     try {
-        client = await pool.connect(); // Obtient un client du pool
+        client = await pool.connect();
         let sqlQuery = `
             SELECT
                 vi.id AS vente_item_id,
@@ -98,14 +92,14 @@ app.get('/api/benefices', async (req, res) => {
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            LEFT JOIN -- CHANGEMENT CLÉ : Utilisation de LEFT JOIN pour inclure les ventes sans facture
+            LEFT JOIN -- Utilisation de LEFT JOIN pour inclure les ventes sans facture
                 factures f ON v.id = f.vente_id
             WHERE
                 vi.statut_vente = 'actif'
                 AND (
-                    (f.facture_id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Ventes liées à une facture spéciale entièrement payée
+                    (f.facture_id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Condition pour les factures formelles payées intégralement
                     OR
-                    (f.facture_id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Ventes en détail entièrement payées
+                    (f.facture_id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Condition pour les ventes en détail entièrement payées
                 )
         `;
         const queryParams = [];
