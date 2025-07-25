@@ -98,11 +98,15 @@ app.get('/api/benefices', async (req, res) => {
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            JOIN
-                factures f ON v.id = f.vente_id -- CORRECTION ICI : v.id = f.vente_id
+            LEFT JOIN -- CHANGEMENT CLÉ : Utilisation de LEFT JOIN pour inclure les ventes sans facture
+                factures f ON v.id = f.vente_id
             WHERE
                 vi.statut_vente = 'actif'
-                AND f.statut_facture = 'payee_integralement'
+                AND (
+                    (f.facture_id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Ventes liées à une facture spéciale entièrement payée
+                    OR
+                    (f.facture_id IS NULL AND v.montant_paye >= v.montant_total AND v.is_facture_speciale = FALSE) -- Ventes en détail entièrement payées
+                )
         `;
         const queryParams = [];
         let paramIndex = 1;
