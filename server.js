@@ -29,10 +29,10 @@ const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour le
 const app = express();
 
 // Configuration CORS
-// En production, l'URL doit être l'URL réelle de votre frontend Render.
+// En production, remplacez 'https://choco-frontend-app.onrender.com' par l'URL réelle de votre frontend Render.
 // Pour le développement local, 'http://localhost:5173' est utilisé.
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://vanchoco.app' : 'http://localhost:5173', // CORRECTION : Utilisation de la nouvelle URL du frontend Render
+  origin: process.env.NODE_ENV === 'production' ? 'https://choco-frontend-app.onrender.com' : 'http://localhost:5173', // L'URL RÉELLE DE VOTRE FRONTEND RENDER
   credentials: true
 }));
 
@@ -47,7 +47,7 @@ app.post('/api/register', registerUser); // Si vous avez une route d'enregistrem
 app.use('/api/clients', clientsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/ventes', ventesRoutes);
-app.use('/api/reports', reportsRouter);
+app.use('/api/reports', reportsRouter); // Assurez-vous que reportsRouter contient la route /dashboard-stats
 app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
@@ -74,149 +74,85 @@ app.get('/api/benefices', async (req, res) => {
                 COALESCE(v.montant_total, 0) AS total_negotiated_sale_price,
                 vi.prix_unitaire_vente AS original_unit_sale_price,
                 COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue)
-                     FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) AS total_original_sale_value,
-                    (CASE
-                        WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN 0
-                        ELSE COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)
-                    END) AS actual_revenue_per_line,
-                    (CASE
-                        WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - (vi.prix_unitaire_achat * vi.quantite_vendue))
-                        ELSE (COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) - (vi.prix_unitaire_achat * vi.quantite_vendue)
-                    END) AS benefice_total_par_ligne,
-                    (CASE
-                        WHEN vi.quantite_vendue = 0 THEN 0
-                        WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - vi.prix_unitaire_achat)
-                        ELSE ((COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) / vi.quantite_vendue) - vi.prix_unitaire_achat
-                    END) AS benefice_unitaire_produit
-                FROM
-                    vente_items vi
-                JOIN
-                    ventes v ON vi.vente_id = v.id
-                JOIN
-                    factures f ON v.id = f.vente_id
-                WHERE
-                    vi.statut_vente = 'actif'
-                    AND f.statut_facture = 'payee_integralement'
-            `;
-            const queryParams = [];
-            let paramIndex = 1;
+                 FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) AS total_original_sale_value,
+                (CASE
+                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN 0
+                    ELSE COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)
+                END) AS actual_revenue_per_line,
+                (CASE
+                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - (vi.prix_unitaire_achat * vi.quantite_vendue))
+                    ELSE (COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) - (vi.prix_unitaire_achat * vi.quantite_vendue)
+                END) AS benefice_total_par_ligne,
+                (CASE
+                    WHEN vi.quantite_vendue = 0 THEN 0
+                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - vi.prix_unitaire_achat)
+                    ELSE ((COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) / vi.quantite_vendue) - vi.prix_unitaire_achat
+                END) AS benefice_unitaire_produit
+            FROM
+                vente_items vi
+            JOIN
+                ventes v ON vi.vente_id = v.id
+            LEFT JOIN -- Utilisation de LEFT JOIN pour inclure les ventes sans facture
+                factures f ON v.id = f.vente_id
+            WHERE
+                vi.statut_vente = 'actif'
+                AND (
+                    (f.id IS NOT NULL AND f.statut_facture = 'payee_integralement') -- Condition pour les factures formelles payées intégralement (CORRECTION: f.id au lieu de f.facture_id)
+                    OR
+                    (f.id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND v.is_facture_speciale = FALSE) -- Condition pour les ventes en détail entièrement payées
+                )
+        `;
+        const queryParams = [];
+        let paramIndex = 1;
 
-            const { date } = req.query;
+        const { date } = req.query;
 
-            if (date) {
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                    return res.status(400).json({ error: 'Format de date invalide. Utilisez YYYY-MM-DD.' });
-                }
-                sqlQuery += ` AND DATE(v.date_vente) = $${paramIndex}`;
-                queryParams.push(date);
-                paramIndex++;
+        if (date) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                return res.status(400).json({ error: 'Format de date invalide. Utilisez YYYY-MM-DD.' });
             }
+            sqlQuery += ` AND DATE(v.date_vente) = $${paramIndex}`;
+            queryParams.push(date);
+            paramIndex++;
+        }
 
-            sqlQuery += ` ORDER BY v.date_vente DESC;`;
+        sqlQuery += ` ORDER BY v.date_vente DESC;`;
 
-            const itemsResult = await client.query(sqlQuery, queryParams);
-            const soldItems = itemsResult.rows;
+        console.log('Backend Benefices: Exécution de la requête SQL:', sqlQuery);
+        console.log('Backend Benefices: Paramètres de la requête:', queryParams);
 
-            let totalBeneficeGlobal = 0;
-            soldItems.forEach(item => {
-                totalBeneficeGlobal += parseFloat(item.benefice_total_par_ligne);
-            });
+        const itemsResult = await client.query(sqlQuery, queryParams);
+        const soldItems = itemsResult.rows;
 
-            res.json({
-                sold_items: soldItems,
-                total_benefice_global: parseFloat(totalBeneficeGlobal)
-            });
+        console.log('Backend Benefices: Articles de vente trouvés:', soldItems);
 
-        } catch (err) {
-            console.error('Erreur lors du calcul des bénéfices:', err);
-            res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices.' });
-        } finally {
-            if (client) {
-                client.release();
-            }
+        let totalBeneficeGlobal = 0;
+        soldItems.forEach(item => {
+            totalBeneficeGlobal += parseFloat(item.benefice_total_par_ligne);
+        });
+
+        console.log('Backend Benefices: Bénéfice total global calculé:', totalBeneficeGlobal);
+
+        res.json({
+            sold_items: soldItems,
+            total_benefice_global: parseFloat(totalBeneficeGlobal)
+        });
+
+    } catch (err) {
+        console.error('Erreur lors du calcul des bénéfices:', err);
+        res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices.' });
+    } finally {
+        if (client) {
+            client.release();
         }
     }
-);
-
-// NOUVELLE ROUTE : Annulation complète d'une facture
-app.post('/api/factures/:factureId/cancel-full', async (req, res) => {
-  const { factureId } = req.params;
-  let client;
-
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN'); // Début de la transaction
-
-    // 1. Récupérer les détails de la facture et de la vente associée
-    const factureRes = await client.query(
-      `SELECT f.vente_id, vi.produit_id, vi.imei, vi.statut_vente
-       FROM factures f
-       JOIN ventes v ON f.vente_id = v.id
-       JOIN vente_items vi ON v.id = vi.vente_id
-       WHERE f.facture_id = $1`,
-      [factureId]
-    );
-
-    if (factureRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Facture non trouvée.' });
-    }
-
-    const venteId = factureRes.rows[0].vente_id;
-    const itemsToReturnToStock = factureRes.rows.filter(item => item.statut_vente === 'actif');
-
-    // 2. Mettre à jour le statut de la facture à 'annulee'
-    await client.query(
-      `UPDATE factures SET statut_facture = 'annulee', date_modification = NOW() WHERE facture_id = $1`,
-      [factureId]
-    );
-
-    // 3. Mettre à jour le statut de tous les articles de vente associés à 'annule'
-    await client.query(
-      `UPDATE vente_items SET statut_vente = 'annule', date_modification = NOW() WHERE vente_id = $1`,
-      [venteId]
-    );
-
-    // 4. Remettre les produits en stock (status 'active', quantite +1)
-    for (const item of itemsToReturnToStock) {
-      // Vérifier si le produit existe et est unique par IMEI
-      const productCheck = await client.query(
-        `SELECT id, quantite FROM products WHERE imei = $1`,
-        [item.imei]
-      );
-
-      if (productCheck.rows.length > 0) {
-        // Si le produit existe, le réactiver et augmenter la quantité
-        await client.query(
-          `UPDATE products SET status = 'active', quantite = quantite + 1, date_modification = NOW() WHERE id = $1`,
-          [productCheck.rows[0].id]
-        );
-      } else {
-        // Logique alternative si le produit n'est pas trouvé par IMEI (devrait être rare si le flux est correct)
-        console.warn(`Produit avec IMEI ${item.imei} non trouvé pour remise en stock lors de l'annulation de la facture ${factureId}.`);
-      }
-    }
-
-    await client.query('COMMIT'); // Fin de la transaction
-    res.status(200).json({ message: `Facture ${factureId} annulée avec succès. Les mobiles ont été remis en stock.` });
-
-  } catch (err) {
-    if (client) {
-      await client.query('ROLLBACK'); // Annuler la transaction en cas d'erreur
-    }
-    console.error('Erreur lors de l\'annulation complète de la facture:', err);
-    res.status(500).json({ error: 'Erreur interne du serveur lors de l\'annulation de la facture.' });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
 });
 
 
 // --- DÉMARRAGE DU SERVEUR ---
+// Le serveur écoute sur le port fourni par l'environnement (Render) ou 3001 par défaut
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log('✅ Connexion à la base de données réussie (vérifiée dans db.js)');
+  console.log('✅ Serveur backend lancé'); // Message simplifié ici
   console.log(`🚀 Serveur backend lancé sur http://localhost:${PORT}`);
 });
