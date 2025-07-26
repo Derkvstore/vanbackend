@@ -52,7 +52,7 @@ app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
 app.use('/api/factures', facturesRoutes);
-const specialOrdersRoutes = require('./specialOrders'); // NOUVELLE ROUTE pour les commandes spéciales
+app.use('/api/special-orders', specialOrdersRoutes); // Utilisation de la route déjà déclarée
 
 // --- NOUVELLE ROUTE GET POUR CALCULER LES BÉNÉFICES ---
 app.get('/api/benefices', async (req, res) => {
