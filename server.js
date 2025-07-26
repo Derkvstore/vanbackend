@@ -52,7 +52,7 @@ app.use('/api/returns', returnsRouter);
 app.use('/api/remplacements', remplacerRouter);
 app.use('/api/fournisseurs', fournisseursRoutes);
 app.use('/api/factures', facturesRoutes);
-app.use('/api/special-orders', specialOrdersRoutes); // NOUVELLE ROUTE pour les commandes spéciales
+const specialOrdersRoutes = require('./specialOrders'); // NOUVELLE ROUTE pour les commandes spéciales
 
 // --- NOUVELLE ROUTE GET POUR CALCULER LES BÉNÉFICES ---
 app.get('/api/benefices', async (req, res) => {
@@ -77,29 +77,27 @@ app.get('/api/benefices', async (req, res) => {
                 -- Calcul du revenu proportionnel et du bénéfice pour les articles actifs
                 CASE
                     WHEN vi.statut_vente = 'actif' THEN
-                        (vi.prix_unitaire_vente * vi.quantite_vendue) -- Utilise le prix unitaire de l'item
+                        (vi.prix_unitaire_vente * vi.quantite_vendue)
                     ELSE 0 -- Si l'article n'est pas actif, son revenu est 0 pour le bénéfice
                 END AS proportional_revenue,
                 CASE
                     WHEN vi.statut_vente = 'actif' THEN
                         (vi.prix_unitaire_vente * vi.quantite_vendue) - (vi.prix_unitaire_achat * vi.quantite_vendue)
-                    ELSE (0 - (vi.prix_unitaire_achat * vi.quantite_vendue)) -- Si l'article est inactif, le bénéfice est la perte du coût d'achat
+                    ELSE 0 -- Si l'article est inactif, son bénéfice est 0
                 END AS benefice_total_par_ligne,
                 CASE
                     WHEN vi.statut_vente = 'actif' AND vi.quantite_vendue > 0 THEN
                         (vi.prix_unitaire_vente - vi.prix_unitaire_achat)
-                    WHEN vi.statut_vente != 'actif' AND vi.quantite_vendue > 0 THEN
-                        (0 - vi.prix_unitaire_achat) -- Si inactif, perte du coût d'achat par unité
-                    ELSE 0
-                END AS benefice_unitaire_produit
+                    ELSE 0 -- Si inactif ou quantité 0, le bénéfice unitaire est 0
+                END AS benefice_unitaire_produit,
                 -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
-                -- COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item -- Temporairement retiré pour le débogage
+                COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item
             FROM
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            -- LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé (Temporairement retiré)
-            --    returns r ON vi.id = r.vente_item_id
+            LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé
+                returns r ON vi.id = r.vente_item_id
             WHERE
                 -- Inclure tous les articles, mais le calcul du bénéfice sera conditionnel au statut_vente
                 (v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel')
