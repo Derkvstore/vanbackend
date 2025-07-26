@@ -320,7 +320,7 @@ router.put('/:id/cancel', async (req, res) => {
              SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = $1,
                  montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $2 -- Rembourse le montant payé initialement sur la facture
              WHERE id = $3 RETURNING *`,
-            [raison_annulation, parseFloat(montant_paye_facture || 0), id] // Use parseFloat(montant_paye_facture || 0) for reimbursement
+            [String(raison_annulation), parseFloat(montant_paye_facture || 0), parseInt(id, 10)] // Use parseFloat(montant_paye_facture || 0) for reimbursement
         );
 
         // 2. Annuler tous les articles de vente liés à cette facture (via la vente_id)
