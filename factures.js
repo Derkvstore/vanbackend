@@ -31,7 +31,7 @@ router.post('/', async (req, res) => {
 
     try {
         clientDb = await pool.connect();
-        await clientDb.query('BEGIN');
+        await clientDb.query('BEGIN'); // Début de la transaction
 
         // Vérifier si une facture existe déjà pour cette vente
         const existingInvoice = await clientDb.query(
