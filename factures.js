@@ -288,12 +288,10 @@ router.put('/:id/payment', async (req, res) => {
 // PUT /api/factures/:id/cancel - Annuler une facture
 router.put('/:id/cancel', async (req, res) => {
     const { id } = req.params;
-    const { raison_annulation } = req.body;
+    // Removed raison_annulation from req.body destructuring
     let clientDb;
 
-    if (!raison_annulation) {
-        return res.status(400).json({ error: 'La raison de l\'annulation est requise.' });
-    }
+    // Removed the check for !raison_annulation
 
     try {
         clientDb = await pool.connect();
@@ -316,10 +314,8 @@ router.put('/:id/cancel', async (req, res) => {
 
         // --- DÉBUT DEBUG LOGS ---
         console.log('DEBUG: Cancelling invoice. Parameters before query:');
-        console.log(`  raison_annulation: "${raison_annulation}" (type: ${typeof raison_annulation})`);
         console.log(`  montant_paye_facture: ${montant_paye_facture} (type: ${typeof montant_paye_facture})`);
         console.log(`  id: ${id} (type: ${typeof id})`);
-        console.log(`  Parsed raison_annulation: "${String(raison_annulation)}" (type: ${typeof String(raison_annulation)})`);
         console.log(`  Parsed montant_paye_facture: ${parseFloat(montant_paye_facture || 0)} (type: ${typeof parseFloat(montant_paye_facture || 0)})`);
         console.log(`  Parsed id: ${parseInt(id, 10)} (type: ${typeof parseInt(id, 10)})`);
         // --- FIN DEBUG LOGS ---
@@ -327,10 +323,10 @@ router.put('/:id/cancel', async (req, res) => {
         // 1. Mettre à jour le statut de la facture
         const updateInvoiceResult = await clientDb.query(
             `UPDATE factures
-             SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = $1,
-                 montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $2 -- Rembourse le montant payé initialement sur la facture
-             WHERE id = $3 RETURNING *`,
-            [String(raison_annulation), parseFloat(montant_paye_facture || 0), parseInt(id, 10)] // Use parseFloat(montant_paye_facture || 0) for reimbursement
+             SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = NULL,
+                 montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $1 -- Rembourse le montant payé initialement sur la facture
+             WHERE id = $2 RETURNING *`,
+            [parseFloat(montant_paye_facture || 0), parseInt(id, 10)] // Parameters shifted: $1 is montant_rembourse, $2 is id
         );
 
         // 2. Annuler tous les articles de vente liés à cette facture (via la vente_id)
