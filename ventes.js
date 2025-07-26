@@ -355,6 +355,7 @@ router.post('/cancel-item', async (req, res) => {
 
     const { is_special_sale_item, prix_unitaire_vente, quantite_vendue } = itemCheckResult.rows[0];
 
+    // Mettre à jour le statut de l'article de vente à 'annule'
     const updateItemResult = await clientDb.query(
         'UPDATE vente_items SET statut_vente = $1, cancellation_reason = $2 WHERE id = $3 AND vente_id = $4 RETURNING *',
         ['annule', reason, itemId, venteId]
@@ -365,10 +366,12 @@ router.post('/cancel-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà annulé.' });
     }
 
-    if (!is_special_sale_item && produitId) {
+    // Mettre à jour le statut du produit dans l'inventaire à 'active' et incrémenter la quantité
+    // Cette partie s'applique désormais à TOUS les articles annulés, qu'ils soient spéciaux ou non
+    if (produitId) {
         await clientDb.query(
-            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-            ['active', produitId, imei]
+            'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4',
+            ['active', quantite, produitId, imei] // Incrémenter la quantité par la quantité vendue
         );
     }
 
@@ -560,8 +563,9 @@ router.post('/return-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà retourné.' });
     }
 
-    // Si ce n'est pas un article de facture spéciale, mettre à jour le statut du produit dans l'inventaire
-    if (!is_special_sale_item && produit_id) {
+    // Mettre à jour le statut du produit dans l'inventaire à 'returned' (défectueux)
+    // Cette partie s'applique désormais à TOUS les articles retournés, qu'ils soient spéciaux ou non
+    if (produit_id) {
         await clientDb.query(
             'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
             ['returned', produit_id, imei] // Nouveau statut 'returned'
@@ -686,8 +690,8 @@ router.post('/mark-as-rendu', async (req, res) => {
     // C'est la modification clé : suppression de la condition `!is_special_sale_item`
     if (produit_id) {
       await clientDb.query(
-        'UPDATE products SET status = $1, quantite = 1, date_ajout = NOW() WHERE id = $2 AND imei = $3', // Ajout de quantite=1 et date_ajout=NOW()
-        ['active', produit_id, imei]
+        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4', // Ajout de quantite=1 et date_ajout=NOW()
+        ['active', updateItemResult.rows[0].quantite_vendue, produit_id, imei] // Incrémenter la quantité par la quantité vendue
       );
     }
 
