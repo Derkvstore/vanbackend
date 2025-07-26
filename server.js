@@ -91,13 +91,13 @@ app.get('/api/benefices', async (req, res) => {
                     ELSE 0 -- Si inactif ou quantité 0, le bénéfice unitaire est 0
                 END AS benefice_unitaire_produit,
                 -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
-                COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item
+                -- Utilise un sous-requête pour récupérer le montant remboursé de la table returns
+                -- Cela rend la requête plus robuste si la table returns n'est pas toujours jointe ou si la colonne n'est pas directement accessible via le LEFT JOIN principal
+                COALESCE((SELECT r.montant_rembourse FROM returns r WHERE r.vente_item_id = vi.id ORDER BY r.return_date DESC LIMIT 1), 0) AS montant_rembourse_item
             FROM
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé
-                returns r ON vi.id = r.vente_item_id
             WHERE
                 -- Inclure tous les articles, mais le calcul du bénéfice sera conditionnel au statut_vente
                 (v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel')
@@ -143,7 +143,7 @@ app.get('/api/benefices', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Erreur lors du calcul des bénéfices:', err);
+        console.error('Erreur lors du calcul des bénéfices:', err); // Log l'erreur exacte
         res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices.' });
     } finally {
         if (client) {
