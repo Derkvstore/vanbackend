@@ -18,7 +18,7 @@ async function generateInvoiceNumber(clientDb) {
     const suffix = String(count).padStart(3, '0');
 
     return `INV-${year}${month}${day}-${suffix}`;
-}
+} 
 
 // POST /api/factures - Créer une nouvelle facture pour une vente donnée
 router.post('/', async (req, res) => {
