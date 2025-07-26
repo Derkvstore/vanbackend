@@ -1,6 +1,7 @@
+// backend/factures.js
 const express = require('express');
 const router = express.Router();
-const { pool } = require('./db'); // Assurez-vous que le chemin est correct
+const { pool } = require('./db'); // Assurez-vous que le chemin est correct pour votre fichier db.js
 
 // Helper pour générer un numéro de facture unique (simple, peut être plus complexe)
 async function generateInvoiceNumber(clientDb) {
@@ -338,8 +339,8 @@ router.put('/:id/cancel', async (req, res) => {
             // Réactiver le produit dans le stock (toujours, quelle que soit is_special_sale_item)
             if (item.produit_id) { // Ensure produit_id exists
                 await clientDb.query(
-                    'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-                    ['active', item.produit_id, item.imei] // Remettre en 'active' pour qu'il soit visible dans le stock
+                    'UPDATE products SET status = \'active\', quantite = quantite + 1 WHERE id = $2 AND imei = $3', // Incrémenter la quantité
+                    [item.produit_id, item.imei]
                 );
             }
         }
@@ -352,7 +353,7 @@ router.put('/:id/cancel', async (req, res) => {
 
 
         await clientDb.query('COMMIT');
-        res.status(200).json({ message: 'Facture et vente associée annulées avec succès.', invoice: updateInvoiceResult.rows[0] });
+        res.status(200).json({ message: 'Facture et vente associée annulées avec succès. Produits remis en stock.' });
 
     } catch (error) {
         if (clientDb) await clientDb.query('ROLLBACK');
@@ -424,8 +425,8 @@ router.post('/:id/return-item', async (req, res) => {
         // 4. Mettre à jour le statut du produit dans 'products' (toujours, quelle que soit is_special_sale_item)
         if (saleItem.produit_id) { // Ensure produit_id exists
             await clientDb.query(
-                `UPDATE products SET status = $1 WHERE id = $2 AND imei = $3`,
-                ['active', saleItem.produit_id, saleItem.imei] // Remettre en 'active' si le produit est remis en stock
+                `UPDATE products SET status = 'active', quantite = quantite + 1 WHERE id = $2 AND imei = $3`, // Incrémenter la quantité
+                [saleItem.produit_id, saleItem.imei]
             );
         }
 
