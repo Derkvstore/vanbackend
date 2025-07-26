@@ -358,7 +358,14 @@ router.put('/:id/cancel', async (req, res) => {
     } catch (error) {
         if (clientDb) await clientDb.query('ROLLBACK');
         console.error('Erreur lors de l\'annulation de la facture:', error);
-        res.status(500).json({ error: 'Erreur serveur lors de l\'annulation de la facture.' });
+        // Plus de détails sur l'erreur pour le débogage
+        if (error.code) { // PostgreSQL error code
+            console.error(`Code d'erreur PostgreSQL: ${error.code}`);
+            console.error(`Détails de l'erreur: ${error.detail}`);
+            res.status(500).json({ error: `Erreur base de données lors de l'annulation: ${error.message}. Code: ${error.code}` });
+        } else {
+            res.status(500).json({ error: `Erreur serveur lors de l'annulation de la facture: ${error.message}` });
+        }
     } finally {
         if (clientDb) clientDb.release();
     }
