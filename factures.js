@@ -314,6 +314,16 @@ router.put('/:id/cancel', async (req, res) => {
             return res.status(400).json({ error: `La facture est déjà ${statut_facture}.` });
         }
 
+        // --- DÉBUT DEBUG LOGS ---
+        console.log('DEBUG: Cancelling invoice. Parameters before query:');
+        console.log(`  raison_annulation: "${raison_annulation}" (type: ${typeof raison_annulation})`);
+        console.log(`  montant_paye_facture: ${montant_paye_facture} (type: ${typeof montant_paye_facture})`);
+        console.log(`  id: ${id} (type: ${typeof id})`);
+        console.log(`  Parsed raison_annulation: "${String(raison_annulation)}" (type: ${typeof String(raison_annulation)})`);
+        console.log(`  Parsed montant_paye_facture: ${parseFloat(montant_paye_facture || 0)} (type: ${typeof parseFloat(montant_paye_facture || 0)})`);
+        console.log(`  Parsed id: ${parseInt(id, 10)} (type: ${typeof parseInt(id, 10)})`);
+        // --- FIN DEBUG LOGS ---
+
         // 1. Mettre à jour le statut de la facture
         const updateInvoiceResult = await clientDb.query(
             `UPDATE factures
