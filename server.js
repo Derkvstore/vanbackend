@@ -93,6 +93,7 @@ app.get('/api/benefices', async (req, res) => {
                     ELSE 0
                 END AS benefice_unitaire_produit,
                 -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
+                -- Utilise COALESCE pour s'assurer que même si 'returns' n'existe pas ou montant_rembourse est NULL, la valeur est 0
                 COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item
             FROM
                 vente_items vi
@@ -102,7 +103,9 @@ app.get('/api/benefices', async (req, res) => {
                 returns r ON vi.id = r.vente_item_id
             WHERE
                 -- Inclure tous les articles, mais le calcul du bénéfice sera conditionnel au statut_vente
-                v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel' -- Inclure les ventes partiellement payées pour voir les bénéfices
+                (v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel')
+                -- Ajout d'une condition pour exclure les ventes dont le statut global est 'annulee'
+                AND v.statut_paiement != 'annulee'
         `;
         const queryParams = [];
         let paramIndex = 1;
