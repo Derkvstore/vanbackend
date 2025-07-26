@@ -77,7 +77,7 @@ router.post('/', async (req, res) => {
         res.status(201).json({ message: 'Facture créée avec succès.', invoice: newInvoiceResult.rows[0] });
 
     } catch (error) {
-        if (clientDb) await clientDb.query('ROLLBACK');
+        if (clientDb) await clientDb.query('ROLLBACK'); // Rollback en cas d'erreur
         console.error('Erreur lors de la création de la facture:', error);
         res.status(500).json({ error: 'Erreur serveur lors de la création de la facture.' });
     } finally {
