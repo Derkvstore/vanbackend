@@ -71,36 +71,38 @@ app.get('/api/benefices', async (req, res) => {
                 vi.prix_unitaire_achat,
                 vi.quantite_vendue,
                 v.date_vente,
-                COALESCE(v.montant_total, 0) AS total_negotiated_sale_price,
+                v.montant_total AS total_negotiated_sale_price_of_parent_sale, -- Montant total de la vente parente
                 vi.prix_unitaire_vente AS original_unit_sale_price,
-                COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue)
-                 FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) AS total_original_sale_value,
-                (CASE
-                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN 0
-                    ELSE COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)
-                END) AS actual_revenue_per_line,
-                (CASE
-                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - (vi.prix_unitaire_achat * vi.quantite_vendue))
-                    ELSE (COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) - (vi.prix_unitaire_achat * vi.quantite_vendue)
-                END) AS benefice_total_par_ligne,
-                (CASE
-                    WHEN vi.quantite_vendue = 0 THEN 0
-                    WHEN COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0) = 0 THEN (0 - vi.prix_unitaire_achat)
-                    ELSE ((COALESCE(v.montant_total, 0) * (vi.prix_unitaire_vente * vi.quantite_vendue) / COALESCE((SELECT SUM(sub_vi.prix_unitaire_vente * sub_vi.quantite_vendue) FROM vente_items sub_vi WHERE sub_vi.vente_id = vi.vente_id), 0)) / vi.quantite_vendue) - vi.prix_unitaire_achat
-                END) AS benefice_unitaire_produit
+                vi.statut_vente, -- Ajout du statut de l'article de vente
+                -- Calcul du revenu proportionnel et du bénéfice pour les articles actifs
+                CASE
+                    WHEN vi.statut_vente = 'actif' THEN
+                        (vi.prix_unitaire_vente * vi.quantite_vendue) -- Utilise le prix unitaire de l'item
+                    ELSE 0 -- Si l'article n'est pas actif, son revenu est 0 pour le bénéfice
+                END AS proportional_revenue,
+                CASE
+                    WHEN vi.statut_vente = 'actif' THEN
+                        (vi.prix_unitaire_vente * vi.quantite_vendue) - (vi.prix_unitaire_achat * vi.quantite_vendue)
+                    ELSE (0 - (vi.prix_unitaire_achat * vi.quantite_vendue)) -- Si l'article est inactif, le bénéfice est la perte du coût d'achat
+                END AS benefice_total_par_ligne,
+                CASE
+                    WHEN vi.statut_vente = 'actif' AND vi.quantite_vendue > 0 THEN
+                        (vi.prix_unitaire_vente - vi.prix_unitaire_achat)
+                    WHEN vi.statut_vente != 'actif' AND vi.quantite_vendue > 0 THEN
+                        (0 - vi.prix_unitaire_achat) -- Si inactif, perte du coût d'achat par unité
+                    ELSE 0
+                END AS benefice_unitaire_produit,
+                -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
+                COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item
             FROM
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            LEFT JOIN -- Utilisation de LEFT JOIN pour inclure les ventes sans facture
-                factures f ON v.id = f.vente_id
+            LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé
+                returns r ON vi.id = r.vente_item_id
             WHERE
-                vi.statut_vente = 'actif'
-                AND (
-                    (f.id IS NOT NULL AND f.statut_facture = 'payee_integralement')
-                    OR
-                    (f.id IS NULL AND COALESCE(v.montant_paye, 0) >= COALESCE(v.montant_total, 0) AND COALESCE(v.is_facture_speciale, FALSE) = FALSE) -- CORRECTION ICI: COALESCE pour v.is_facture_speciale
-                )
+                -- Inclure tous les articles, mais le calcul du bénéfice sera conditionnel au statut_vente
+                v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel' -- Inclure les ventes partiellement payées pour voir les bénéfices
         `;
         const queryParams = [];
         let paramIndex = 1;
@@ -128,6 +130,8 @@ app.get('/api/benefices', async (req, res) => {
 
         let totalBeneficeGlobal = 0;
         soldItems.forEach(item => {
+            // Seuls les articles "actifs" contribuent positivement au bénéfice global
+            // Les articles annulés/retournés/rendus ont déjà un bénéfice_total_par_ligne qui est une perte (0 - coût d'achat)
             totalBeneficeGlobal += parseFloat(item.benefice_total_par_ligne);
         });
 
