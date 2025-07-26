@@ -24,7 +24,7 @@ const returnsRouter = require('./returns');
 const remplacerRouter = require('./remplacements');
 const fournisseursRoutes = require('./fournisseurs');
 const facturesRoutes = require('./factures');
-const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour les commandes spéciales
+const specialOrdersRoutes = require('./specialOrders'); // NOUVEL IMPORT pour les commandes commandes spéciales
 
 const app = express();
 
@@ -91,16 +91,15 @@ app.get('/api/benefices', async (req, res) => {
                     WHEN vi.statut_vente != 'actif' AND vi.quantite_vendue > 0 THEN
                         (0 - vi.prix_unitaire_achat) -- Si inactif, perte du coût d'achat par unité
                     ELSE 0
-                END AS benefice_unitaire_produit,
+                END AS benefice_unitaire_produit
                 -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
-                -- Utilise COALESCE pour s'assurer que même si 'returns' n'existe pas ou montant_rembourse est NULL, la valeur est 0
-                COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item
+                -- COALESCE(r.montant_rembourse, 0) AS montant_rembourse_item -- Temporairement retiré pour le débogage
             FROM
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé
-                returns r ON vi.id = r.vente_item_id
+            -- LEFT JOIN -- Jointure avec la table returns pour récupérer le montant remboursé (Temporairement retiré)
+            --    returns r ON vi.id = r.vente_item_id
             WHERE
                 -- Inclure tous les articles, mais le calcul du bénéfice sera conditionnel au statut_vente
                 (v.statut_paiement = 'payee_integralement' OR v.statut_paiement = 'paiement_partiel')
