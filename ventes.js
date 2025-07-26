@@ -234,7 +234,7 @@ router.post('/', async (req, res) => {
     }
 
 
-    const productStatusUpdates = [];
+    const productUpdates = []; // Renommé pour plus de clarté
     const saleItems = [];
 
     for (const item of items) {
@@ -253,7 +253,12 @@ router.post('/', async (req, res) => {
       const prixUnitaireVenteFinal = parseFloat(item.prix_unitaire_vente || product.prix_vente);
       const prixUnitaireAchat = parseFloat(product.prix_achat);
 
-      productStatusUpdates.push({ id: product.id, newStatus: 'sold' });
+      // Préparer la mise à jour du produit : statut 'sold' et décrémenter la quantité
+      productUpdates.push({
+        id: product.id,
+        newStatus: 'sold',
+        quantityChange: -item.quantite_vendue // Décrémenter la quantité
+      });
 
       saleItems.push({
         produit_id: product.id,
@@ -307,14 +312,14 @@ router.post('/', async (req, res) => {
     }
     console.log('Backend: Articles de vente insérés.');
 
-    // 5. Mettre à jour le statut des produits dans l'inventaire
-    for (const update of productStatusUpdates) {
+    // 5. Mettre à jour le statut et la quantité des produits dans l'inventaire
+    for (const update of productUpdates) {
       await clientDb.query(
-        'UPDATE products SET status = $1 WHERE id = $2',
-        [update.newStatus, update.id]
+        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3',
+        [update.newStatus, update.quantityChange, update.id] // Utiliser quantityChange pour décrémenter
       );
     }
-    console.log('Backend: Statut des produits mis à jour.');
+    console.log('Backend: Statut et quantité des produits mis à jour.');
 
     // ATTENTION: La logique d'insertion de facture a été supprimée ici.
     // Les factures seront gérées par une route /api/factures dédiée si is_facture_speciale est true.
@@ -370,8 +375,8 @@ router.post('/cancel-item', async (req, res) => {
     // Cette partie s'applique désormais à TOUS les articles annulés, qu'ils soient spéciaux ou non
     if (produitId) {
         await clientDb.query(
-            'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4',
-            ['active', quantite, produitId, imei] // Incrémenter la quantité par la quantité vendue
+            'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3', // Utiliser produitId seulement
+            ['active', quantite_vendue, produitId] // Incrémenter la quantité par la quantité vendue de l'article
         );
     }
 
@@ -567,8 +572,8 @@ router.post('/return-item', async (req, res) => {
     // Cette partie s'applique désormais à TOUS les articles retournés, qu'ils soient spéciaux ou non
     if (produit_id) {
         await clientDb.query(
-            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-            ['returned', produit_id, imei] // Nouveau statut 'returned'
+            'UPDATE products SET status = $1 WHERE id = $2', // Utiliser produitId seulement
+            ['returned', produit_id] // Nouveau statut 'returned', pas de changement de quantité
         );
     }
 
@@ -690,8 +695,8 @@ router.post('/mark-as-rendu', async (req, res) => {
     // C'est la modification clé : suppression de la condition `!is_special_sale_item`
     if (produit_id) {
       await clientDb.query(
-        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4', // Ajout de quantite=1 et date_ajout=NOW()
-        ['active', updateItemResult.rows[0].quantite_vendue, produit_id, imei] // Incrémenter la quantité par la quantité vendue
+        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3', // Utiliser produitId seulement
+        ['active', updateItemResult.rows[0].quantite_vendue, produit_id] // Incrémenter la quantité par la quantité vendue
       );
     }
 
