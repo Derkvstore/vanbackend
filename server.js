@@ -89,11 +89,11 @@ app.get('/api/benefices', async (req, res) => {
                     WHEN vi.statut_vente = 'actif' AND vi.quantite_vendue > 0 THEN
                         (vi.prix_unitaire_vente - vi.prix_unitaire_achat)
                     ELSE 0 -- Si inactif ou quantité 0, le bénéfice unitaire est 0
-                END AS benefice_unitaire_produit,
+                END AS benefice_unitaire_produit
                 -- Montant remboursé pour l'article (à récupérer de la table returns si applicable)
-                -- Utilise un sous-requête pour récupérer le montant remboursé de la table returns
-                -- Cela rend la requête plus robuste si la table returns n'est pas toujours jointe ou si la colonne n'est pas directement accessible via le LEFT JOIN principal
-                COALESCE((SELECT r.montant_rembourse FROM returns r WHERE r.vente_item_id = vi.id ORDER BY r.return_date DESC LIMIT 1), 0) AS montant_rembourse_item
+                -- Temporairement retiré pour le débogage. Si vous avez besoin de cette colonne,
+                -- assurez-vous que la table 'returns' et la colonne 'montant_rembourse' existent et sont accessibles.
+                -- , COALESCE((SELECT r.montant_rembourse FROM returns r WHERE r.vente_item_id = vi.id ORDER BY r.return_date DESC LIMIT 1), 0) AS montant_rembourse_item
             FROM
                 vente_items vi
             JOIN
@@ -130,8 +130,6 @@ app.get('/api/benefices', async (req, res) => {
 
         let totalBeneficeGlobal = 0;
         soldItems.forEach(item => {
-            // Seuls les articles "actifs" contribuent positivement au bénéfice global
-            // Les articles annulés/retournés/rendus ont déjà un bénéfice_total_par_ligne qui est une perte (0 - coût d'achat)
             totalBeneficeGlobal += parseFloat(item.benefice_total_par_ligne);
         });
 
@@ -143,8 +141,9 @@ app.get('/api/benefices', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Erreur lors du calcul des bénéfices:', err); // Log l'erreur exacte
-        res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices.' });
+        // Log l'erreur exacte pour un débogage plus facile
+        console.error('Erreur détaillée lors du calcul des bénéfices:', err);
+        res.status(500).json({ error: 'Erreur interne du serveur lors du calcul des bénéfices. Veuillez consulter les logs du serveur pour plus de détails.' });
     } finally {
         if (client) {
             client.release();
