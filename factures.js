@@ -1,7 +1,6 @@
-// backend/factures.js
 const express = require('express');
 const router = express.Router();
-const { pool } = require('./db'); // Assurez-vous que le chemin est correct pour votre fichier db.js
+const { pool } = require('./db'); // Assurez-vous que le chemin est correct
 
 // Helper pour générer un numéro de facture unique (simple, peut être plus complexe)
 async function generateInvoiceNumber(clientDb) {
@@ -18,7 +17,7 @@ async function generateInvoiceNumber(clientDb) {
     const suffix = String(count).padStart(3, '0');
 
     return `INV-${year}${month}${day}-${suffix}`;
-} 
+}
 
 // POST /api/factures - Créer une nouvelle facture pour une vente donnée
 router.post('/', async (req, res) => {
@@ -31,7 +30,7 @@ router.post('/', async (req, res) => {
 
     try {
         clientDb = await pool.connect();
-        await clientDb.query('BEGIN'); // Début de la transaction
+        await clientDb.query('BEGIN');
 
         // Vérifier si une facture existe déjà pour cette vente
         const existingInvoice = await clientDb.query(
@@ -77,7 +76,7 @@ router.post('/', async (req, res) => {
         res.status(201).json({ message: 'Facture créée avec succès.', invoice: newInvoiceResult.rows[0] });
 
     } catch (error) {
-        if (clientDb) await clientDb.query('ROLLBACK'); // Rollback en cas d'erreur
+        if (clientDb) await clientDb.query('ROLLBACK');
         console.error('Erreur lors de la création de la facture:', error);
         res.status(500).json({ error: 'Erreur serveur lors de la création de la facture.' });
     } finally {
@@ -320,51 +319,28 @@ router.put('/:id/cancel', async (req, res) => {
              SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = $1,
                  montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $2 -- Rembourse le montant payé initialement sur la facture
              WHERE id = $3 RETURNING *`,
-            [raison_annulation, parseFloat(montant_paye_facture || 0).toFixed(2), parseInt(id, 10)] // Use .toFixed(2) for numeric(10,2) type
+            [raison_annulation, montant_paye_facture, id] // Use montant_paye_facture for reimbursement
         );
 
         // 2. Annuler tous les articles de vente liés à cette facture (via la vente_id)
         const saleItemsResult = await clientDb.query(
-            'SELECT id, produit_id, imei, is_special_sale_item, quantite_vendue FROM vente_items WHERE vente_id = $1 AND statut_vente = \'actif\' FOR UPDATE', // AJOUTÉ: quantite_vendue
+            'SELECT id, produit_id, imei, is_special_sale_item FROM vente_items WHERE vente_id = $1 AND statut_vente = \'actif\' FOR UPDATE',
             [vente_id]
         );
 
-        console.log(`DEBUG: Annulation de la facture ${id}. Articles de vente actifs trouvés: ${saleItemsResult.rows.length}`);
-
         for (const item of saleItemsResult.rows) {
-            console.log(`DEBUG: Traitement de l'article de vente ID: ${item.id}, Produit ID: ${item.produit_id}, IMEI: ${item.imei}`);
-
             // Mettre à jour le statut de l'article de vente
             await clientDb.query(
                 `UPDATE vente_items SET statut_vente = 'annule', cancellation_reason = $1 WHERE id = $2`,
                 [`Annulation facture #${updateInvoiceResult.rows[0].numero_facture}`, item.id]
             );
-            console.log(`DEBUG: Statut de vente_item ${item.id} mis à 'annule'.`);
-
-            // Récupérer le statut actuel du produit avant la mise à jour
-            const currentProductStatus = await clientDb.query('SELECT status, quantite FROM products WHERE id = $1 AND imei = $2', [item.produit_id, item.imei]);
-            if (currentProductStatus.rows.length > 0) {
-                console.log(`DEBUG: Statut actuel du produit (ID: ${item.produit_id}, IMEI: ${item.imei}) AVANT mise à jour: ${currentProductStatus.rows[0].status}, Quantité: ${currentProductStatus.rows[0].quantite}`);
-            } else {
-                console.log(`DEBUG: Produit (ID: ${item.produit_id}, IMEI: ${item.imei}) non trouvé dans la table products avant mise à jour.`);
-            }
-
-            // --- NOUVEAU LOG ICI ---
-            console.log(`DEBUG (cancel-facture): Tentative de réactivation du produit ID: ${item.produit_id}, IMEI: ${item.imei}. Incrémentation de la quantité par: ${item.quantite_vendue}`);
 
             // Réactiver le produit dans le stock (toujours, quelle que soit is_special_sale_item)
-            if (item.produit_id && item.imei) { // Ensure produit_id and imei exist
-                const updateProductResult = await clientDb.query(
-                    'UPDATE products SET status = \'active\', quantite = quantite + $3 WHERE id = $1 AND imei = $2 RETURNING status, quantite', // Incrémenter la quantité par item.quantite_vendue
-                    [item.produit_id, item.imei, item.quantite_vendue] // AJOUTÉ: item.quantite_vendue
+            if (item.produit_id) { // Ensure produit_id exists
+                await clientDb.query(
+                    'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
+                    ['active', item.produit_id, item.imei] // Remettre en 'active' pour qu'il soit visible dans le stock
                 );
-                if (updateProductResult.rows.length > 0) {
-                    console.log(`DEBUG: Statut du produit (ID: ${item.produit_id}, IMEI: ${item.imei}) APRÈS mise à jour: ${updateProductResult.rows[0].status}, Quantité: ${updateProductResult.rows[0].quantite}`);
-                } else {
-                    console.log(`DEBUG: Échec de la mise à jour du produit (ID: ${item.produit_id}, IMEI: ${item.imei}). Peut-être non trouvé.`);
-                }
-            } else {
-                console.log(`DEBUG: produit_id ou imei manquant pour l'article de vente ${item.id}. Impossible de réactiver le produit.`);
             }
         }
 
@@ -373,27 +349,17 @@ router.put('/:id/cancel', async (req, res) => {
             `UPDATE ventes SET statut_paiement = 'annulee', montant_paye = 0, montant_total = 0 WHERE id = $1`, // Reset total and paid for sale
             [vente_id]
         );
-        console.log(`DEBUG: Statut de la vente ${vente_id} mis à 'annulee' et montants réinitialisés.`);
 
 
         await clientDb.query('COMMIT');
-        console.log('DEBUG: Transaction COMMIT pour annulation de facture.');
-        res.status(200).json({ message: 'Facture et vente associée annulées avec succès. Produits remis en stock.' });
+        res.status(200).json({ message: 'Facture et vente associée annulées avec succès.', invoice: updateInvoiceResult.rows[0] });
 
     } catch (error) {
         if (clientDb) await clientDb.query('ROLLBACK');
-        console.error('Erreur CRITIQUE lors de l\'annulation de la facture:', error);
-        // Plus de détails sur l'erreur pour le débogage
-        if (error.code) { // PostgreSQL error code
-            console.error(`Code d'erreur PostgreSQL: ${error.code}`);
-            console.error(`Détails de l'erreur: ${error.detail}`);
-            res.status(500).json({ error: `Erreur base de données lors de l'annulation: ${error.message}. Code: ${error.code}` });
-        } else {
-            res.status(500).json({ error: `Erreur serveur lors de l'annulation de la facture: ${error.message}` });
-        }
+        console.error('Erreur lors de l\'annulation de la facture:', error);
+        res.status(500).json({ error: 'Erreur serveur lors de l\'annulation de la facture.' });
     } finally {
         if (clientDb) clientDb.release();
-        console.log('DEBUG: Connexion à la base de données relâchée.');
     }
 });
 
@@ -458,8 +424,8 @@ router.post('/:id/return-item', async (req, res) => {
         // 4. Mettre à jour le statut du produit dans 'products' (toujours, quelle que soit is_special_sale_item)
         if (saleItem.produit_id) { // Ensure produit_id exists
             await clientDb.query(
-                'UPDATE products SET status = $1 WHERE id = $2', // Utiliser produitId seulement
-                ['returned', saleItem.produit_id] // Nouveau statut 'returned', pas de changement de quantité
+                `UPDATE products SET status = $1 WHERE id = $2 AND imei = $3`,
+                ['active', saleItem.produit_id, saleItem.imei] // Remettre en 'active' si le produit est remis en stock
             );
         }
 
