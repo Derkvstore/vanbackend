@@ -866,9 +866,10 @@ router.get('/:id/pdf', async (req, res) => {
               <p style="font-size: 14px;"><strong>Téléphone:</strong> ${sale.client_telephone || 'N/A'}</p>
             </td>
             <td style="vertical-align: top; width: 50%; text-align: right;">
-              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">[ALY MEGA STORE]</h2>
-              <p style="font-size: 12px;">Tél : [79 79 83 77]</p>
-              <p style="font-size: 12px;">Adresse : [Halle de Bamako]</p>
+              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">VAN CHOCO I'STORE</h2>
+              <p style="font-size: 12px;">Tél : 71 71 78 01  & 77 03 40 45 </p>
+              <p style="font-size: 12px;">Adresse : Halle de Bamako</p>
+              <p style="font-size: 12px;">Près de l'agence Malitel</p>
             </td>
           </tr>
         </table>
