@@ -395,6 +395,8 @@ router.post('/cancel-item', async (req, res) => {
             console.log(`DEBUG (cancel-item): Produit ${produitId} (IMEI: ${imei}) non trouvé dans la table products AVANT UPDATE.`);
         }
 
+        // --- NOUVEAU LOG ICI ---
+        console.log(`DEBUG (cancel-item): Tentative de réactivation du produit ID: ${produitId}, IMEI: ${imei}. Incrémentation de la quantité par: ${quantite_vendue}`);
 
         const updateProductResult = await clientDb.query(
             'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4 RETURNING status, quantite', // Utiliser produitId et imei pour plus de précision
@@ -810,7 +812,7 @@ router.post('/mark-as-rendu', async (req, res) => {
       await clientDb.query('ROLLBACK');
     }
     console.error('Erreur lors du marquage comme rendu de l\'article:', error);
-    res.status(500).json({ error: 'Erreur serveur lors du marquage comme rendu de l\'article.' });
+    res.status(500).json({ error: 'Erreur serveur lors du marquage comme rendu de l'article.' });
   } finally {
     if (clientDb) {
       clientDb.release();
