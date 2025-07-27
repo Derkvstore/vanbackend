@@ -3,11 +3,19 @@ services:
   - type: web
     name: choco-backend-api # Assurez-vous que c'est le même nom que votre service Render
     env: node
-    # Nouvelle commande de build pour décompresser Chromium manuellement et s'assurer de sa persistance
+    # Commande de build pour installer dépendances et copier le binaire Chromium
     buildCommand: |
       npm install
-      npm install -g @sparticuz/chromium@latest # Installer globalement pour s'assurer que le script est accessible
-      node -e "const chromium = require('@sparticuz/chromium'); chromium.executablePath.then(p => console.log('Chromium path:', p)).catch(e => { console.error(e); process.exit(1); });"
+      # Obtenir le chemin où @sparticuz/chromium extrait le binaire et le copier
+      CHROME_BIN_PATH=$(node -e "require('@sparticuz/chromium').executablePath.then(p => console.log(p)).catch(e => { console.error(e); process.exit(1); })")
+      echo "Chromium extrait vers: $CHROME_BIN_PATH"
+      # Créer un répertoire persistant dans le projet
+      mkdir -p /opt/render/project/src/chrome-bin
+      # Copier le binaire extrait vers le répertoire persistant
+      cp $CHROME_BIN_PATH /opt/render/project/src/chrome-bin/chromium
+      # Rendre le fichier exécutable
+      chmod +x /opt/render/project/src/chrome-bin/chromium
+      echo "Chromium copié vers /opt/render/project/src/chrome-bin/chromium"
     startCommand: 'node server.js'
     envVars:
       - key: NODE_ENV
@@ -16,3 +24,4 @@ services:
         sync: false # Assurez-vous que cette variable est synchronisée depuis votre environnement Render
       - key: PORT
         value: 3001
+      # Plus besoin de définir CHROME_PATH ici, nous l'utiliserons directement dans ventes.js

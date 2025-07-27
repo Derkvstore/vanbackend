@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
-const puppeteer = require('puppeteer-core'); // Utilisation de puppeteer-core
-const chromium = require('@sparticuz/chromium'); // Importation de @sparticuz/chromium
+const pdf = require('html-pdf'); // Importation de la bibliothèque html-pdf
 
 // Fonction utilitaire pour formater les montants
 const formatAmount = (amount) => {
@@ -234,7 +233,7 @@ router.post('/', async (req, res) => {
     }
 
 
-    const productUpdates = []; // Renommé pour plus de clarté
+    const productStatusUpdates = [];
     const saleItems = [];
 
     for (const item of items) {
@@ -253,12 +252,7 @@ router.post('/', async (req, res) => {
       const prixUnitaireVenteFinal = parseFloat(item.prix_unitaire_vente || product.prix_vente);
       const prixUnitaireAchat = parseFloat(product.prix_achat);
 
-      // Préparer la mise à jour du produit : statut 'sold' et décrémenter la quantité
-      productUpdates.push({
-        id: product.id,
-        newStatus: 'sold',
-        quantityChange: -item.quantite_vendue // Décrémenter la quantité
-      });
+      productStatusUpdates.push({ id: product.id, newStatus: 'sold' });
 
       saleItems.push({
         produit_id: product.id,
@@ -312,14 +306,14 @@ router.post('/', async (req, res) => {
     }
     console.log('Backend: Articles de vente insérés.');
 
-    // 5. Mettre à jour le statut et la quantité des produits dans l'inventaire
-    for (const update of productUpdates) {
+    // 5. Mettre à jour le statut des produits dans l'inventaire
+    for (const update of productStatusUpdates) {
       await clientDb.query(
-        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3',
-        [update.newStatus, update.quantityChange, update.id] // Utiliser quantityChange pour décrémenter
+        'UPDATE products SET status = $1 WHERE id = $2',
+        [update.newStatus, update.id]
       );
     }
-    console.log('Backend: Statut et quantité des produits mis à jour.');
+    console.log('Backend: Statut des produits mis à jour.');
 
     // ATTENTION: La logique d'insertion de facture a été supprimée ici.
     // Les factures seront gérées par une route /api/factures dédiée si is_facture_speciale est true.
@@ -360,7 +354,6 @@ router.post('/cancel-item', async (req, res) => {
 
     const { is_special_sale_item, prix_unitaire_vente, quantite_vendue } = itemCheckResult.rows[0];
 
-    // Mettre à jour le statut de l'article de vente à 'annule'
     const updateItemResult = await clientDb.query(
         'UPDATE vente_items SET statut_vente = $1, cancellation_reason = $2 WHERE id = $3 AND vente_id = $4 RETURNING *',
         ['annule', reason, itemId, venteId]
@@ -371,12 +364,10 @@ router.post('/cancel-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà annulé.' });
     }
 
-    // Mettre à jour le statut du produit dans l'inventaire à 'active' et incrémenter la quantité
-    // Cette partie s'applique désormais à TOUS les articles annulés, qu'ils soient spéciaux ou non
-    if (produitId) {
+    if (!is_special_sale_item && produitId) {
         await clientDb.query(
-            'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3', // Utiliser produitId seulement
-            ['active', quantite_vendue, produitId] // Incrémenter la quantité par la quantité vendue de l'article
+            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
+            ['active', produitId, imei]
         );
     }
 
@@ -568,12 +559,11 @@ router.post('/return-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà retourné.' });
     }
 
-    // Mettre à jour le statut du produit dans l'inventaire à 'returned' (défectueux)
-    // Cette partie s'applique désormais à TOUS les articles retournés, qu'ils soient spéciaux ou non
-    if (produit_id) {
+    // Si ce n'est pas un article de facture spéciale, mettre à jour le statut du produit dans l'inventaire
+    if (!is_special_sale_item && produit_id) {
         await clientDb.query(
-            'UPDATE products SET status = $1 WHERE id = $2', // Utiliser produitId seulement
-            ['returned', produit_id] // Nouveau statut 'returned', pas de changement de quantité
+            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
+            ['returned', produit_id, imei] // Nouveau statut 'returned'
         );
     }
 
@@ -695,8 +685,8 @@ router.post('/mark-as-rendu', async (req, res) => {
     // C'est la modification clé : suppression de la condition `!is_special_sale_item`
     if (produit_id) {
       await clientDb.query(
-        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3', // Utiliser produitId seulement
-        ['active', updateItemResult.rows[0].quantite_vendue, produit_id] // Incrémenter la quantité par la quantité vendue
+        'UPDATE products SET status = $1, quantite = 1, date_ajout = NOW() WHERE id = $2 AND imei = $3', // Ajout de quantite=1 et date_ajout=NOW()
+        ['active', produit_id, imei]
       );
     }
 
@@ -777,7 +767,6 @@ router.post('/mark-as-rendu', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   const venteId = req.params.id;
   let clientDb;
-  let browser; // Déclarer la variable browser ici
 
   try {
     clientDb = await pool.connect();
@@ -824,7 +813,7 @@ router.get('/:id/pdf', async (req, res) => {
       GROUP BY
           v.id, c.nom, c.telephone;
     `;
-    const result = await clientDb.query(saleDetailsQuery, [venteId]);
+    const result = await clientDb.query(saleDetailsQuery, [venteId]); // Correction: utilisation de 'saleDetailsQuery'
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Vente non trouvée.' });
@@ -910,45 +899,31 @@ router.get('/:id/pdf', async (req, res) => {
       </div>
     `;
 
-    // Utilisation de Puppeteer pour générer le PDF
-    // Lancer un navigateur sans tête
-    // Utiliser l'option 'args' pour Render afin d'assurer la compatibilité
-    browser = await puppeteer.launch({
-        headless: 'new', // Utiliser 'new' pour la dernière version du mode sans tête
-        args: chromium.args,
-        // Pointer explicitement vers le binaire Chromium copié
-        executablePath: '/opt/render/project/src/chrome-bin/chromium', // <-- MODIFICATION CLÉ ICI
-    });
-    const page = await browser.newPage();
-
-    // Définir le contenu HTML de la page
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-
-    // Générer le PDF
-    const pdfBuffer = await page.pdf({
+    const options = {
       format: 'A4',
-      printBackground: true, // Pour inclure les couleurs de fond
-      margin: {
-        top: '1cm',
-        right: '1cm',
-        bottom: '1cm',
-        left: '1cm'
-      }
-    });
+      orientation: 'portrait',
+      border: '1cm',
+      quality: '75',
+    };
 
-    res.writeHead(200, {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
-      'Content-Length': pdfBuffer.length
+    pdf.create(htmlContent, options).toBuffer((err, buffer) => {
+      if (err) {
+        console.error('Erreur lors de la création du PDF:', err);
+        return res.status(500).json({ error: 'Erreur lors de la génération du PDF.' });
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
+        'Content-Length': buffer.length
+      });
+      res.end(buffer);
     });
-    res.end(pdfBuffer);
 
   } catch (error) {
-    console.error('Erreur lors de la génération du PDF de la facture avec Puppeteer:', error);
+    console.error('Erreur lors de la génération du PDF de la facture:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la génération du PDF.' });
   } finally {
     if (clientDb) clientDb.release();
-    if (browser) await browser.close(); // S'assurer que le navigateur est fermé
   }
 });
 

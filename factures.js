@@ -1,7 +1,6 @@
-// backend/factures.js
 const express = require('express');
 const router = express.Router();
-const { pool } = require('./db'); // Assurez-vous que le chemin est correct pour votre fichier db.js
+const { pool } = require('./db'); // Assurez-vous que le chemin est correct
 
 // Helper pour générer un numéro de facture unique (simple, peut être plus complexe)
 async function generateInvoiceNumber(clientDb) {
@@ -18,7 +17,7 @@ async function generateInvoiceNumber(clientDb) {
     const suffix = String(count).padStart(3, '0');
 
     return `INV-${year}${month}${day}-${suffix}`;
-} 
+}
 
 // POST /api/factures - Créer une nouvelle facture pour une vente donnée
 router.post('/', async (req, res) => {
@@ -31,7 +30,7 @@ router.post('/', async (req, res) => {
 
     try {
         clientDb = await pool.connect();
-        await clientDb.query('BEGIN'); // Début de la transaction
+        await clientDb.query('BEGIN');
 
         // Vérifier si une facture existe déjà pour cette vente
         const existingInvoice = await clientDb.query(
@@ -77,7 +76,7 @@ router.post('/', async (req, res) => {
         res.status(201).json({ message: 'Facture créée avec succès.', invoice: newInvoiceResult.rows[0] });
 
     } catch (error) {
-        if (clientDb) await clientDb.query('ROLLBACK'); // Rollback en cas d'erreur
+        if (clientDb) await clientDb.query('ROLLBACK');
         console.error('Erreur lors de la création de la facture:', error);
         res.status(500).json({ error: 'Erreur serveur lors de la création de la facture.' });
     } finally {
@@ -288,10 +287,12 @@ router.put('/:id/payment', async (req, res) => {
 // PUT /api/factures/:id/cancel - Annuler une facture
 router.put('/:id/cancel', async (req, res) => {
     const { id } = req.params;
-    // Removed raison_annulation from req.body destructuring
+    const { raison_annulation } = req.body;
     let clientDb;
 
-    // Removed the check for !raison_annulation
+    if (!raison_annulation) {
+        return res.status(400).json({ error: 'La raison de l\'annulation est requise.' });
+    }
 
     try {
         clientDb = await pool.connect();
@@ -312,21 +313,13 @@ router.put('/:id/cancel', async (req, res) => {
             return res.status(400).json({ error: `La facture est déjà ${statut_facture}.` });
         }
 
-        // --- DÉBUT DEBUG LOGS ---
-        console.log('DEBUG: Cancelling invoice. Parameters before query:');
-        console.log(`  montant_paye_facture: ${montant_paye_facture} (type: ${typeof montant_paye_facture})`);
-        console.log(`  id: ${id} (type: ${typeof id})`);
-        console.log(`  Parsed montant_paye_facture: ${parseFloat(montant_paye_facture || 0)} (type: ${typeof parseFloat(montant_paye_facture || 0)})`);
-        console.log(`  Parsed id: ${parseInt(id, 10)} (type: ${typeof parseInt(id, 10)})`);
-        // --- FIN DEBUG LOGS ---
-
         // 1. Mettre à jour le statut de la facture
         const updateInvoiceResult = await clientDb.query(
             `UPDATE factures
-             SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = NULL,
-                 montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $1 -- Rembourse le montant payé initialement sur la facture
-             WHERE id = $2 RETURNING *`,
-            [parseFloat(montant_paye_facture || 0).toFixed(2), parseInt(id, 10)] // Use .toFixed(2) for numeric(10,2) type
+             SET statut_facture = 'annulee', date_annulation = NOW(), raison_annulation = $1,
+                 montant_paye_facture = 0, montant_actuel_du = 0, montant_rembourse = $2 -- Rembourse le montant payé initialement sur la facture
+             WHERE id = $3 RETURNING *`,
+            [raison_annulation, montant_paye_facture, id] // Use montant_paye_facture for reimbursement
         );
 
         // 2. Annuler tous les articles de vente liés à cette facture (via la vente_id)
@@ -345,8 +338,8 @@ router.put('/:id/cancel', async (req, res) => {
             // Réactiver le produit dans le stock (toujours, quelle que soit is_special_sale_item)
             if (item.produit_id) { // Ensure produit_id exists
                 await clientDb.query(
-                    'UPDATE products SET status = \'active\', quantite = quantite + 1 WHERE id = $2 AND imei = $3', // Incrémenter la quantité
-                    [item.produit_id, item.imei]
+                    'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
+                    ['active', item.produit_id, item.imei] // Remettre en 'active' pour qu'il soit visible dans le stock
                 );
             }
         }
@@ -359,19 +352,12 @@ router.put('/:id/cancel', async (req, res) => {
 
 
         await clientDb.query('COMMIT');
-        res.status(200).json({ message: 'Facture et vente associée annulées avec succès. Produits remis en stock.' });
+        res.status(200).json({ message: 'Facture et vente associée annulées avec succès.', invoice: updateInvoiceResult.rows[0] });
 
     } catch (error) {
         if (clientDb) await clientDb.query('ROLLBACK');
         console.error('Erreur lors de l\'annulation de la facture:', error);
-        // Plus de détails sur l'erreur pour le débogage
-        if (error.code) { // PostgreSQL error code
-            console.error(`Code d'erreur PostgreSQL: ${error.code}`);
-            console.error(`Détails de l'erreur: ${error.detail}`);
-            res.status(500).json({ error: `Erreur base de données lors de l'annulation: ${error.message}. Code: ${error.code}` });
-        } else {
-            res.status(500).json({ error: `Erreur serveur lors de l'annulation de la facture: ${error.message}` });
-        }
+        res.status(500).json({ error: 'Erreur serveur lors de l\'annulation de la facture.' });
     } finally {
         if (clientDb) clientDb.release();
     }
@@ -438,8 +424,8 @@ router.post('/:id/return-item', async (req, res) => {
         // 4. Mettre à jour le statut du produit dans 'products' (toujours, quelle que soit is_special_sale_item)
         if (saleItem.produit_id) { // Ensure produit_id exists
             await clientDb.query(
-                `UPDATE products SET status = 'active', quantite = quantite + 1 WHERE id = $2 AND imei = $3`, // Incrémenter la quantité
-                [saleItem.produit_id, saleItem.imei]
+                `UPDATE products SET status = $1 WHERE id = $2 AND imei = $3`,
+                ['active', saleItem.produit_id, saleItem.imei] // Remettre en 'active' si le produit est remis en stock
             );
         }
 
