@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
-const pdf = require('html-pdf'); // Importation de la bibliothèque html-pdf
+const puppeteer = require('puppeteer-core'); // Utilisation de puppeteer-core
+const chromium = require('@sparticuz/chromium'); // Importation de @sparticuz/chromium
 
 // Fonction utilitaire pour formater les montants
 const formatAmount = (amount) => {
@@ -233,7 +234,7 @@ router.post('/', async (req, res) => {
     }
 
 
-    const productStatusUpdates = [];
+    const productUpdates = []; // Renommé pour plus de clarté
     const saleItems = [];
 
     for (const item of items) {
@@ -252,7 +253,12 @@ router.post('/', async (req, res) => {
       const prixUnitaireVenteFinal = parseFloat(item.prix_unitaire_vente || product.prix_vente);
       const prixUnitaireAchat = parseFloat(product.prix_achat);
 
-      productStatusUpdates.push({ id: product.id, newStatus: 'sold' });
+      // Préparer la mise à jour du produit : statut 'sold' et décrémenter la quantité
+      productUpdates.push({
+        id: product.id,
+        newStatus: 'sold',
+        quantityChange: -item.quantite_vendue // Décrémenter la quantité
+      });
 
       saleItems.push({
         produit_id: product.id,
@@ -306,14 +312,14 @@ router.post('/', async (req, res) => {
     }
     console.log('Backend: Articles de vente insérés.');
 
-    // 5. Mettre à jour le statut des produits dans l'inventaire
-    for (const update of productStatusUpdates) {
+    // 5. Mettre à jour le statut et la quantité des produits dans l'inventaire
+    for (const update of productUpdates) {
       await clientDb.query(
-        'UPDATE products SET status = $1 WHERE id = $2',
-        [update.newStatus, update.id]
+        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3',
+        [update.newStatus, update.quantityChange, update.id] // Utiliser quantityChange pour décrémenter
       );
     }
-    console.log('Backend: Statut des produits mis à jour.');
+    console.log('Backend: Statut et quantité des produits mis à jour.');
 
     // ATTENTION: La logique d'insertion de facture a été supprimée ici.
     // Les factures seront gérées par une route /api/factures dédiée si is_facture_speciale est true.
@@ -338,6 +344,10 @@ router.post('/cancel-item', async (req, res) => {
   const { venteId, itemId, produitId, imei, quantite, reason } = req.body;
   let clientDb;
 
+  console.log('DEBUG (cancel-item): Requête reçue pour annuler un article.');
+  console.log(`DEBUG (cancel-item): venteId: ${venteId}, itemId: ${itemId}, produitId: ${produitId}, imei: ${imei}, quantite: ${quantite}, reason: ${reason}`);
+
+
   try {
     clientDb = await pool.connect();
     await clientDb.query('BEGIN');
@@ -349,11 +359,15 @@ router.post('/cancel-item', async (req, res) => {
 
     if (itemCheckResult.rows.length === 0) {
         await clientDb.query('ROLLBACK');
+        console.log('DEBUG (cancel-item): Article de vente non trouvé.');
         return res.status(404).json({ error: 'Article de vente non trouvé.' });
     }
 
     const { is_special_sale_item, prix_unitaire_vente, quantite_vendue } = itemCheckResult.rows[0];
+    console.log(`DEBUG (cancel-item): Article de vente trouvé. is_special_sale_item: ${is_special_sale_item}, quantite_vendue: ${quantite_vendue}`);
 
+
+    // Mettre à jour le statut de l'article de vente à 'annule'
     const updateItemResult = await clientDb.query(
         'UPDATE vente_items SET statut_vente = $1, cancellation_reason = $2 WHERE id = $3 AND vente_id = $4 RETURNING *',
         ['annule', reason, itemId, venteId]
@@ -361,14 +375,39 @@ router.post('/cancel-item', async (req, res) => {
 
     if (updateItemResult.rows.length === 0) {
         await clientDb.query('ROLLBACK');
+        console.log('DEBUG (cancel-item): Échec de la mise à jour du statut de vente_item.');
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà annulé.' });
     }
+    console.log(`DEBUG (cancel-item): Statut de vente_item ${itemId} mis à 'annule'.`);
 
-    if (!is_special_sale_item && produitId) {
-        await clientDb.query(
-            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-            ['active', produitId, imei]
+
+    // MODIFICATION ICI : Assurez-vous que le statut du produit est mis à 'active' et la quantité incrémentée
+    if (produitId) {
+        // Obtenir le statut actuel du produit avant la mise à jour
+        const currentProductStatusResult = await clientDb.query(
+            'SELECT status, quantite FROM products WHERE id = $1 AND imei = $2',
+            [produitId, imei]
         );
+        if (currentProductStatusResult.rows.length > 0) {
+            const currentProduct = currentProductStatusResult.rows[0];
+            console.log(`DEBUG (cancel-item): Statut actuel du produit ${produitId} (IMEI: ${imei}) AVANT UPDATE: status=${currentProduct.status}, quantite=${currentProduct.quantite}`);
+        } else {
+            console.log(`DEBUG (cancel-item): Produit ${produitId} (IMEI: ${imei}) non trouvé dans la table products AVANT UPDATE.`);
+        }
+
+
+        const updateProductResult = await clientDb.query(
+            'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3 AND imei = $4 RETURNING status, quantite', // Utiliser produitId et imei pour plus de précision
+            ['active', quantite_vendue, produitId, imei] // Incrémenter la quantité par la quantité vendue de l'article
+        );
+
+        if (updateProductResult.rows.length > 0) {
+            console.log(`DEBUG (cancel-item): Statut du produit ${produitId} (IMEI: ${imei}) APRÈS UPDATE: status=${updateProductResult.rows[0].status}, quantite=${updateProductResult.rows[0].quantite}`);
+        } else {
+            console.log(`DEBUG (cancel-item): Échec de la mise à jour du produit ${produitId} (IMEI: ${imei}). Aucune ligne affectée. Le produit n'a peut-être pas été trouvé avec cette combinaison ID/IMEI.`);
+        }
+    } else {
+        console.log('DEBUG (cancel-item): produitId est null ou undefined. Impossible de réactiver le produit.');
     }
 
     // Recalculer le montant total de la vente après annulation de l'article
@@ -379,10 +418,14 @@ router.post('/cancel-item', async (req, res) => {
       [venteId]
     );
     const newMontantTotal = parseFloat(recalculatedSaleTotalResult.rows[0].new_montant_total);
+    console.log(`DEBUG (cancel-item): Nouveau montant total de la vente (articles actifs): ${newMontantTotal}`);
+
 
     // Récupérer le montant payé actuel pour déterminer le nouveau statut de paiement
     const currentSaleResult = await clientDb.query('SELECT montant_paye FROM ventes WHERE id = $1', [venteId]);
     const currentMontantPaye = parseFloat(currentSaleResult.rows[0].montant_paye);
+    console.log(`DEBUG (cancel-item): Montant payé actuel de la vente: ${currentMontantPaye}`);
+
 
     let newStatutPaiement = 'en_attente_paiement';
     if (newMontantTotal <= currentMontantPaye) {
@@ -392,12 +435,16 @@ router.post('/cancel-item', async (req, res) => {
     } else if (currentMontantPaye === 0) {
       newStatutPaiement = 'en_attente_paiement';
     }
+    console.log(`DEBUG (cancel-item): Nouveau statut de paiement de la vente: ${newStatutPaiement}`);
+
 
     // Mettre à jour la vente principale avec le nouveau montant total et statut
     await clientDb.query(
       'UPDATE ventes SET montant_total = $1, statut_paiement = $2 WHERE id = $3',
       [newMontantTotal, newStatutPaiement, venteId]
     );
+    console.log(`DEBUG (cancel-item): Vente ${venteId} mise à jour.`);
+
 
     // Calculer le nouveau montant_actuel_du pour la facture
     const newMontantActuelDu = newMontantTotal - currentMontantPaye;
@@ -407,6 +454,8 @@ router.post('/cancel-item', async (req, res) => {
       'UPDATE factures SET statut_facture = $1, montant_original_facture = $2, montant_actuel_du = $3, montant_paye_facture = $4 WHERE vente_id = $5',
       [newStatutPaiement, newMontantTotal, newMontantActuelDu, currentMontantPaye, venteId]
     );
+    console.log(`DEBUG (cancel-item): Facture associée à la vente ${venteId} mise à jour.`);
+
 
     // Vérifier si tous les articles de la vente sont maintenant inactifs (annulés/retournés/rendu)
     const saleItemsStatusCheck = await clientDb.query(
@@ -414,6 +463,8 @@ router.post('/cancel-item', async (req, res) => {
       [venteId]
     );
     const { total_items, inactive_items } = saleItemsStatusCheck.rows[0];
+    console.log(`DEBUG (cancel-item): Vérification des articles inactifs. Total: ${total_items}, Inactifs: ${inactive_items}`);
+
 
     if (parseInt(inactive_items, 10) === parseInt(total_items, 10)) {
         await clientDb.query(
@@ -425,20 +476,24 @@ router.post('/cancel-item', async (req, res) => {
             'UPDATE factures SET statut_facture = \'annulee\' WHERE vente_id = $1',
             [venteId]
         );
+        console.log(`DEBUG (cancel-item): Tous les articles de la vente ${venteId} sont inactifs. Vente et facture marquées comme 'annulee'.`);
     }
 
     await clientDb.query('COMMIT');
+    console.log('DEBUG (cancel-item): Transaction validée (COMMIT).');
     res.status(200).json({ message: 'Article annulé et produit réactivé si applicable.' });
 
   } catch (error) {
     if (clientDb) {
       await clientDb.query('ROLLBACK');
+      console.log('DEBUG (cancel-item): Transaction annulée (ROLLBACK) en raison d\'une erreur.');
     }
     console.error('Erreur lors de l\'annulation de l\'article:', error);
     res.status(500).json({ error: 'Erreur serveur lors de l\'annulation de l\'article.' });
   } finally {
     if (clientDb) {
       clientDb.release();
+      console.log('DEBUG (cancel-item): Connexion à la base de données relâchée.');
     }
   }
 });
@@ -559,11 +614,12 @@ router.post('/return-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà retourné.' });
     }
 
-    // Si ce n'est pas un article de facture spéciale, mettre à jour le statut du produit dans l'inventaire
-    if (!is_special_sale_item && produit_id) {
+    // Mettre à jour le statut du produit dans l'inventaire à 'returned' (défectueux)
+    // Cette partie s'applique désormais à TOUS les articles retournés, qu'ils soient spéciaux ou non
+    if (produit_id) {
         await clientDb.query(
-            'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
-            ['returned', produit_id, imei] // Nouveau statut 'returned'
+            'UPDATE products SET status = $1 WHERE id = $2', // Utiliser produitId seulement
+            ['returned', produit_id] // Nouveau statut 'returned', pas de changement de quantité
         );
     }
 
@@ -685,8 +741,8 @@ router.post('/mark-as-rendu', async (req, res) => {
     // C'est la modification clé : suppression de la condition `!is_special_sale_item`
     if (produit_id) {
       await clientDb.query(
-        'UPDATE products SET status = $1, quantite = 1, date_ajout = NOW() WHERE id = $2 AND imei = $3', // Ajout de quantite=1 et date_ajout=NOW()
-        ['active', produit_id, imei]
+        'UPDATE products SET status = $1, quantite = quantite + $2 WHERE id = $3', // Utiliser produitId seulement
+        ['active', updateItemResult.rows[0].quantite_vendue, produit_id] // Incrémenter la quantité par la quantité vendue
       );
     }
 
@@ -767,6 +823,7 @@ router.post('/mark-as-rendu', async (req, res) => {
 router.get('/:id/pdf', async (req, res) => {
   const venteId = req.params.id;
   let clientDb;
+  let browser; // Déclarer la variable browser ici
 
   try {
     clientDb = await pool.connect();
@@ -813,7 +870,7 @@ router.get('/:id/pdf', async (req, res) => {
       GROUP BY
           v.id, c.nom, c.telephone;
     `;
-    const result = await clientDb.query(saleDetailsQuery, [venteId]); // Correction: utilisation de 'saleDetailsQuery'
+    const result = await clientDb.query(saleDetailsQuery, [venteId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Vente non trouvée.' });
@@ -866,10 +923,9 @@ router.get('/:id/pdf', async (req, res) => {
               <p style="font-size: 14px;"><strong>Téléphone:</strong> ${sale.client_telephone || 'N/A'}</p>
             </td>
             <td style="vertical-align: top; width: 50%; text-align: right;">
-              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">VAN CHOCO I'STORE</h2>
-              <p style="font-size: 12px;">Tél : 71 71 78 01  & 77 03 40 45 </p>
-              <p style="font-size: 12px;">Adresse : Halle de Bamako</p>
-              <p style="font-size: 12px;">Près de l'agence Malitel</p>
+              <h2 style="color: #007AFF; font-family: 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; margin-bottom: 5px;">[ALY MEGA STORE]</h2>
+              <p style="font-size: 12px;">Tél : [79 79 83 77]</p>
+              <p style="font-size: 12px;">Adresse : [Halle de Bamako]</p>
             </td>
           </tr>
         </table>
@@ -900,31 +956,45 @@ router.get('/:id/pdf', async (req, res) => {
       </div>
     `;
 
-    const options = {
-      format: 'A4',
-      orientation: 'portrait',
-      border: '1cm',
-      quality: '75',
-    };
+    // Utilisation de Puppeteer pour générer le PDF
+    // Lancer un navigateur sans tête
+    // Utiliser l'option 'args' pour Render afin d'assurer la compatibilité
+    browser = await puppeteer.launch({
+        headless: 'new', // Utiliser 'new' pour la dernière version du mode sans tête
+        args: chromium.args,
+        // Pointer explicitement vers le binaire Chromium copié
+        executablePath: '/opt/render/project/src/chrome-bin/chromium', // <-- MODIFICATION CLÉ ICI
+    });
+    const page = await browser.newPage();
 
-    pdf.create(htmlContent, options).toBuffer((err, buffer) => {
-      if (err) {
-        console.error('Erreur lors de la création du PDF:', err);
-        return res.status(500).json({ error: 'Erreur lors de la génération du PDF.' });
+    // Définir le contenu HTML de la page
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+    // Générer le PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true, // Pour inclure les couleurs de fond
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
       }
-      res.writeHead(200, {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
-        'Content-Length': buffer.length
-      });
-      res.end(buffer);
     });
 
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=facture_${venteId}.pdf`,
+      'Content-Length': pdfBuffer.length
+    });
+    res.end(pdfBuffer);
+
   } catch (error) {
-    console.error('Erreur lors de la génération du PDF de la facture:', error);
+    console.error('Erreur lors de la génération du PDF de la facture avec Puppeteer:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la génération du PDF.' });
   } finally {
     if (clientDb) clientDb.release();
+    if (browser) await browser.close(); // S'assurer que le navigateur est fermé
   }
 });
 
