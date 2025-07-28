@@ -1,3 +1,4 @@
+// backend/ventes.js
 const express = require('express');
 const router = express.Router();
 const { pool } = require('./db'); // Assurez-vous que le chemin vers db.js est correct
@@ -364,12 +365,16 @@ router.post('/cancel-item', async (req, res) => {
         return res.status(404).json({ error: 'Article de vente non trouvé ou déjà annulé.' });
     }
 
-    if (!is_special_sale_item && produitId) {
+    // DÉBUT DE LA MODIFICATION POUR RÉINTÉGRER AU STOCK
+    // La condition '!is_special_sale_item' a été supprimée ici.
+    // Tout produit avec un produitId sera réactivé en stock.
+    if (produitId) {
         await clientDb.query(
             'UPDATE products SET status = $1 WHERE id = $2 AND imei = $3',
             ['active', produitId, imei]
         );
     }
+    // FIN DE LA MODIFICATION
 
     // Recalculer le montant total de la vente après annulation de l'article
     const recalculatedSaleTotalResult = await clientDb.query(
