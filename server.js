@@ -70,11 +70,9 @@ app.get('/api/benefices', async (req, res) => {
                 vente_items vi
             JOIN
                 ventes v ON vi.vente_id = v.id
-            JOIN
-                factures f ON v.id = f.vente_id
             WHERE
                 vi.statut_vente = 'actif' -- Ne considère que les articles activement vendus
-                AND f.statut_facture = 'payee_integralement' -- La facture doit être intégralement payée
+                AND v.statut_paiement = 'payee_integralement' -- La vente doit être intégralement payée (inclut détail et gros)
         `;
         const queryParams = [];
         let paramIndex = 1;
@@ -101,7 +99,7 @@ app.get('/api/benefices', async (req, res) => {
         // --- DÉBOGAGE : AFFICHER LES DONNÉES AVANT L'ENVOI AU FRONTEND ---
         console.log("Données des articles vendus envoyées au frontend (vérifiez 'date_vente'):");
         soldItems.forEach(item => {
-            console.log(`  IMEI: ${item.imei}, Date Vente: ${item.date_vente}`);
+            console.log(`  IMEI: ${item.imei}, Date Vente: ${item.date_vente}, Bénéfice: ${item.benefice_total_par_ligne}`);
         });
         // --- FIN DÉBOGAGE ---
 
